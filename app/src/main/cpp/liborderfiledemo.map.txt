@@ -1,0 +1,7 @@
+LIBORDERFILEDEMO {
+  global:
+    JNI_OnLoad;
+    Java_com_google_androidgamesdk_GameActivity_*;
+  local:
+    *;
+};

@@ -1,0 +1,44 @@
+# Local machine and tool state
+.cache/
+.downloads/
+.gradle/
+.planning/
+.tooling/
+.idea/
+local.properties
+.DS_Store
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Android / Gradle / CMake build output
+build/
+app/.cxx/
+app/build/
+out/
+cb-out/
+
+# Rust build output
+rust/cory_rust/target/
+third_party/ripgrep/target/
+
+# Vendored prebuilt bundles fetched/generated outside normal source control
+third_party/node24-android/
+third_party/python-android/prefix/
+
+# Local worktrees, downloaded toolchains, and scratch builds
+work/
+codebuild/node/work/
+codebuild/node/out/
+
+# Generated reports and packaged artifacts
+build-all-assets-manifest.txt
+build-all-assets-report.txt
+android-project-source.zip
+node-android-build.tgz
+*.apk
+*.ap_
+*.aab
+*.tgz

@@ -1,0 +1,61 @@
+# CodeBuild spec for Cory Android full asset + APK build using the ECR image
+# bountynet/ndk-nodejs (docker/android-build/Dockerfile).
+#
+# Required env (set on the CodeBuild project or in the console):
+#   CORY_PUBLIC_ARTIFACTS_BUCKET — target bucket for public artifacts (see CFN template)
+#
+# Optional:
+#   CORY_ARTIFACT_PREFIX          — S3 prefix, default builds/<build-id>/
+#   CORY_SKIP_NODE               — if "1", runs build_all_assets.py --skip-node
+#   CORY_SKIP_RIPGREP            — if "1", adds --skip-ripgrep
+#   CORY_SKIP_APP                — if "1", adds --skip-app (skips APK / Device Farm)
+#   DEVICE_FARM_PROJECT_ARN      — if unset or CORY_SKIP_DEVICE_FARM=1, skip Device Farm
+#   AWS_DEFAULT_REGION_DEVICE_FARM — default us-west-2 (Device Farm API region)
+
+version: 0.2
+
+env:
+  variables:
+    ANDROID_SDK_ROOT: "/opt/android-sdk"
+    ANDROID_HOME: "/opt/android-sdk"
+    AWS_DEFAULT_REGION_DEVICE_FARM: "us-west-2"
+
+phases:
+  install:
+    commands:
+      - set -euo pipefail
+      - export CORY_ROOT="${CODEBUILD_SRC_DIR}"
+      - apt-get update
+      - apt-get install -y --no-install-recommends awscli ca-certificates curl python3
+
+  pre_build:
+    commands:
+      - set -euo pipefail
+      - export CORY_ROOT="${CODEBUILD_SRC_DIR}"
+      - cd "$CORY_ROOT"
+      - python3 scripts/build_all_assets.py --doctor-only
+
+  build:
+    commands:
+      - set -euo pipefail
+      - export CORY_ROOT="${CODEBUILD_SRC_DIR}"
+      - cd "$CORY_ROOT"
+      - |
+        SKIP_ARGS=""
+        if [ "${CORY_SKIP_NODE:-0}" = "1" ]; then SKIP_ARGS="$SKIP_ARGS --skip-node"; fi
+        if [ "${CORY_SKIP_RIPGREP:-0}" = "1" ]; then SKIP_ARGS="$SKIP_ARGS --skip-ripgrep"; fi
+        if [ "${CORY_SKIP_APP:-0}" = "1" ]; then SKIP_ARGS="$SKIP_ARGS --skip-app"; fi
+        python3 scripts/build_all_assets.py $SKIP_ARGS
+
+  post_build:
+    commands:
+      - set -euo pipefail
+      - export CORY_ROOT="${CODEBUILD_SRC_DIR}"
+      - cd "$CORY_ROOT"
+      - bash codebuild/android-full/post_build_publish.sh
+
+artifacts:
+  base-directory: cb-out
+  files:
+    - "**/*"
+  name: cory-android-build

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cory_canvas">#F2EFE8</color>
+    <color name="cory_surface">#FFFDF8</color>
+    <color name="cory_surface_alt">#F4EEE2</color>
+    <color name="cory_accent">#0B6B70</color>
+    <color name="cory_text">#1F1A14</color>
+    <color name="cory_muted">#63594C</color>
+    <color name="cory_stroke">#D4C9B8</color>
+    <color name="cory_white">#FFFFFFFF</color>
+</resources>

@@ -1,0 +1,24 @@
+<resources>
+    <string name="app_name">Cory</string>
+    <string name="hero_eyebrow">Inception sandbox</string>
+    <string name="hero_title">Cory workspace</string>
+    <string name="hero_subtitle">Edit files, run Python, and issue shell-like commands against the same private workspace.</string>
+    <string name="workspace_label">Workspace</string>
+    <string name="editor_label">Editor</string>
+    <string name="editor_summary">Current file</string>
+    <string name="console_label">Terminal</string>
+    <string name="save_button">Save</string>
+    <string name="run_button">Run</string>
+    <string name="command_button">Exec</string>
+    <string name="clear_button">Clear</string>
+    <string name="new_file_button">New File</string>
+    <string name="new_dir_button">New Dir</string>
+    <string name="command_hint">git status</string>
+    <string name="current_file_empty">No file selected</string>
+    <string name="terminal_empty">No terminal output yet.</string>
+    <string name="workspace_empty">Workspace is empty.</string>
+    <string name="status_ready">Sandbox ready.</string>
+    <string name="native_stack_label">Native stack</string>
+    <string name="storage_label">Storage paths</string>
+    <string name="storage_summary">files: %1$s\ncache: %2$s\nsandbox: %3$s\nworkspace: %4$s</string>
+</resources>

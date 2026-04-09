@@ -1,0 +1,178 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+def coryPythonAndroidDir = file("$rootDir/third_party/python-android")
+def coryPythonPrefixDir = file("$coryPythonAndroidDir/prefix")
+def coryPythonVersion = '3.14.3'
+def coryPythonStdlibDir = 'python3.14'
+def coryPythonAbi = 'arm64-v8a'
+def coryNodeBinary = file("$rootDir/third_party/node24-android/bin/${coryPythonAbi}/node")
+def coryRipgrepBinary = file("$rootDir/third_party/ripgrep/target/aarch64-linux-android/release/rg")
+def coryBusyboxDir = file("$rootDir/third_party/ndk-busybox-ref")
+def coryBusyboxBinary = file("$coryBusyboxDir/libs/${coryPythonAbi}/busybox")
+def coryGeneratedPythonAssetsDir = file("$buildDir/generated/cory/python-assets")
+def coryGeneratedPythonJniLibsDir = file("$buildDir/generated/cory/python-jniLibs")
+def coryRustProjectDir = file("$rootDir/rust/cory_rust")
+def coryRustTargetTriple = 'aarch64-linux-android'
+
+if (!coryPythonPrefixDir.exists()) {
+    throw new GradleException("Official CPython Android prefix not found at $coryPythonPrefixDir")
+}
+
+android {
+    namespace = 'com.example.orderfiledemo'
+    compileSdk = 36
+    ndkVersion = '27.2.12479018'
+    aaptOptions {
+        ignoreAssetsPattern = "android-testbed-dont-ignore-anything"
+    }
+
+    defaultConfig {
+        applicationId = "com.example.orderfiledemo"
+        minSdk = 24
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake {
+                cppFlags ''
+                arguments(
+                    '-DANDROID_STL=c++_shared',
+                    '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON',
+                    '-DCORY_ENABLE_LITERT_LM=OFF'
+                )
+            }
+        }
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file('src/main/cpp/CMakeLists.txt')
+        }
+    }
+
+    buildFeatures {
+        viewBinding = true
+        prefab = true
+    }
+
+    sourceSets {
+        main {
+            assets.srcDir(coryGeneratedPythonAssetsDir)
+            jniLibs.srcDir(coryGeneratedPythonJniLibsDir)
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8.toString()
+    }
+
+    buildTypes {
+        debug {
+            packaging {
+                jniLibs {
+                    keepDebugSymbols += '**/*.so'
+                }
+            }
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.games:games-activity:3.0.5'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'com.google.ai.edge.litertlm:litertlm-android:0.9.0-alpha06'
+}
+
+tasks.register('preparePythonAssets', Copy) {
+    into(coryGeneratedPythonAssetsDir)
+
+    into("python/lib/${coryPythonStdlibDir}") {
+        from("${coryPythonPrefixDir}/lib/${coryPythonStdlibDir}")
+        exclude('**/__pycache__')
+        into('site-packages') {
+            from('src/main/python')
+        }
+        rename(/.*(\.gz|-)/, '$0-')
+    }
+
+    if (coryRipgrepBinary.exists()) {
+        into("python/bin") {
+            from(coryRipgrepBinary)
+        }
+    }
+
+    if (coryNodeBinary.exists()) {
+        into("python/bin") {
+            from(coryNodeBinary)
+        }
+    }
+
+    if (coryBusyboxBinary.exists()) {
+        into("python/bin") {
+            from(coryBusyboxBinary)
+        }
+    }
+
+    doLast {
+        mkdir("${coryGeneratedPythonAssetsDir}/python/cwd")
+    }
+}
+
+tasks.register('buildBusyboxArm64', Exec) {
+    workingDir(coryBusyboxDir)
+    commandLine(
+            "${android.sdkDirectory}/ndk/${android.ndkVersion}/ndk-build",
+            'NDK_PROJECT_PATH=.',
+            'APP_BUILD_SCRIPT=Android.mk',
+            "APP_ABI=${coryPythonAbi}",
+            'APP_PLATFORM=android-24',
+            '-j4'
+    )
+}
+
+tasks.register('buildRustArm64', Exec) {
+    workingDir(coryRustProjectDir)
+    environment 'ANDROID_HOME', android.sdkDirectory.absolutePath
+    environment 'ANDROID_SDK_ROOT', android.sdkDirectory.absolutePath
+    environment 'ANDROID_NDK_HOME', "${android.sdkDirectory}/ndk/${android.ndkVersion}"
+    commandLine(
+            'bash',
+            '-lc',
+            'source "$HOME/.cargo/env" && cargo ndk -t arm64-v8a --platform 24 build'
+    )
+}
+
+tasks.named('preparePythonAssets').configure {
+    dependsOn('buildBusyboxArm64')
+}
+
+tasks.register('preparePythonJniLibs', Copy) {
+    into(coryGeneratedPythonJniLibsDir)
+
+    into("${coryPythonAbi}") {
+        from("${coryPythonPrefixDir}/lib")
+        include('libpython*.*.so')
+        include('lib*_python.so')
+    }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn('buildBusyboxArm64', 'buildRustArm64', 'preparePythonAssets', 'preparePythonJniLibs')
+}

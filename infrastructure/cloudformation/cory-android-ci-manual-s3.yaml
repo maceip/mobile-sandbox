@@ -1,0 +1,165 @@
+# Manual CodeBuild only: upload a source zip from EC2, then start-build.
+# No GitHub, no CodePipeline. Public S3 for APK / .a / .so under builds/*.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Cory Android CodeBuild (manual): S3 source zip, ECR Docker image, public artifact bucket,
+  Device Farm in post_build. Trigger from EC2 with scripts/trigger_cory_codebuild.sh
+
+Parameters:
+  EcrRepositoryUri:
+    Type: String
+    Default: "095713295645.dkr.ecr.eu-central-1.amazonaws.com/bountynet/ndk-nodejs"
+  EcrRegion:
+    Type: String
+    Default: "eu-central-1"
+  DeviceFarmProjectArn:
+    Type: String
+    Default: "arn:aws:devicefarm:us-west-2:095713295645:project:8e321148-ce0c-4708-8e61-f05e54857989"
+  SourceObjectKey:
+    Type: String
+    Default: "cory-source.zip"
+    Description: S3 key CodeBuild reads (trigger script uploads here).
+
+Resources:
+  SourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  PublicArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldBuilds
+            Status: Enabled
+            Prefix: builds/
+            ExpirationInDays: 90
+
+  PublicArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PublicArtifactsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadBuildArtifacts
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${PublicArtifactsBucket.Arn}/builds/*"
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CoryManualCodeBuild
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource: !Sub "${SourceBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt SourceBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource: !Sub "${PublicArtifactsBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt PublicArtifactsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: !Sub "arn:aws:ecr:${EcrRegion}:${AWS::AccountId}:repository/*"
+              - Effect: Allow
+                Action:
+                  - devicefarm:*
+                Resource: "*"
+
+  CoryAndroidManualCodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "cory-android-manual-s3-${AWS::Region}"
+      Description: Manual trigger — source zip on S3; Dockerfile/ECR image; artifacts to public bucket.
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_2XLARGE
+        Image: !Sub "${EcrRepositoryUri}:latest"
+        ImagePullCredentialsType: SERVICE_ROLE
+        PrivilegedMode: false
+        EnvironmentVariables:
+          - Name: AWS_REGION
+            Value: !Ref AWS::Region
+          - Name: CORY_PUBLIC_ARTIFACTS_BUCKET
+            Value: !Ref PublicArtifactsBucket
+          - Name: DEVICE_FARM_PROJECT_ARN
+            Value: !Ref DeviceFarmProjectArn
+          - Name: AWS_DEFAULT_REGION_DEVICE_FARM
+            Value: us-west-2
+      Source:
+        Type: S3
+        Location: !Sub "${SourceBucket}/${SourceObjectKey}"
+        BuildSpec: codebuild/android-full/buildspec.yml
+      TimeoutInMinutes: 480
+
+Outputs:
+  SourceBucketName:
+    Value: !Ref SourceBucket
+  PublicArtifactsBucketName:
+    Value: !Ref PublicArtifactsBucket
+  CodeBuildProjectName:
+    Value: !Ref CoryAndroidManualCodeBuild
+  PublicArtifactsUrlPrefix:
+    Value: !Sub "https://${PublicArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/builds/"

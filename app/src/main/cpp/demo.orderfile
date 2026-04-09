@@ -1,0 +1,5 @@
+# Ordered 4 functions
+JNI_OnLoad
+_Z11RunWorkloadP7_JNIEnvP8_jobjectP8_jstring
+_Z23DumpProfileDataIfNeededPKc
+_ZL8snprintfPcU17pass_object_size1mPKcz
