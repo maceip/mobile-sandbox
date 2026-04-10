@@ -24,6 +24,14 @@ ASSET_ARCHIVES = {
     "rust": "rust-cory_rust-arm64-debug.tgz",
 }
 
+ASSET_TARGETS = {
+    "node": Path("third_party"),
+    "python": Path("third_party/python-android"),
+    "busybox": Path("third_party/ndk-busybox-ref/libs"),
+    "ripgrep": Path("third_party/ripgrep/target/aarch64-linux-android"),
+    "rust": Path("rust/cory_rust/target/aarch64-linux-android"),
+}
+
 DEFAULT_REGION = "eu-central-1"
 DEFAULT_BUCKET = "cory-android-ci-manual-publicartifactsbucket-kmzlqxd3q1il"
 DEFAULT_PREFIX = "builds/prebuilt/latest"
@@ -110,7 +118,9 @@ def main() -> int:
                 archive_name=archive_name,
             )
             download(url, archive_path)
-            safe_extract(archive_path, root)
+            destination = root / ASSET_TARGETS[name]
+            destination.mkdir(parents=True, exist_ok=True)
+            safe_extract(archive_path, destination)
             log(f"restored {name} from {url}")
 
     return 0
