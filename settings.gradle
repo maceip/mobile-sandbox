@@ -12,6 +12,11 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
     }
+    versionCatalogs {
+        create("libs") {
+            from(files("terminal-core/gradle/libs.versions.toml"))
+        }
+    }
 }
 
 rootProject.name = 'Cory'
