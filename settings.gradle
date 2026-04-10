@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = 'Cory'
 include ':app'
+include ':terminal'
+project(':terminal').projectDir = file('terminal-core/terminal')
