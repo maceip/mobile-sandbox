@@ -1,5 +1,7 @@
 package com.example.orderfiledemo.compose
 
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,12 +23,23 @@ import androidx.compose.ui.platform.LocalContext
 import com.ai.assistance.operit.terminal.TerminalManager
 import com.ai.assistance.operit.terminal.main.TerminalScreen
 import com.ai.assistance.operit.terminal.rememberTerminalEnv
+import com.ai.assistance.operit.terminal.service.TerminalService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class ComposeSandboxActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Start the foreground service to keep PTY sessions alive
+        // when the app is backgrounded.
+        val serviceIntent = Intent(this, TerminalService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+
         setContent {
             ComposeSandboxScreen()
         }
