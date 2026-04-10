@@ -1,6 +1,12 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+def coryBooleanProp = { String name, boolean defaultValue ->
+    def value = project.findProperty(name)
+    return value == null ? defaultValue : value.toString().toBoolean()
 }
 
 def coryPythonAndroidDir = file("$rootDir/third_party/python-android")
@@ -9,6 +15,7 @@ def coryPythonVersion = '3.14.3'
 def coryPythonStdlibDir = 'python3.14'
 def coryPythonAbi = 'arm64-v8a'
 def coryNodeBinary = file("$rootDir/third_party/node24-android/bin/${coryPythonAbi}/node")
+def coryNodeStaticLib = file("$rootDir/third_party/node24-android/lib/${coryPythonAbi}/liblibnode.a")
 def coryRipgrepBinary = file("$rootDir/third_party/ripgrep/target/aarch64-linux-android/release/rg")
 def coryBusyboxDir = file("$rootDir/third_party/ndk-busybox-ref")
 def coryBusyboxBinary = file("$coryBusyboxDir/libs/${coryPythonAbi}/busybox")
@@ -16,9 +23,19 @@ def coryGeneratedPythonAssetsDir = file("$buildDir/generated/cory/python-assets"
 def coryGeneratedPythonJniLibsDir = file("$buildDir/generated/cory/python-jniLibs")
 def coryRustProjectDir = file("$rootDir/rust/cory_rust")
 def coryRustTargetTriple = 'aarch64-linux-android'
+def coryRustStaticLib = file("$coryRustProjectDir/target/${coryRustTargetTriple}/debug/libcory_rust.a")
+def coryEnableNodeEmbed = coryBooleanProp('coryEnableNodeEmbed', false)
+def coryRebuildBusybox = coryBooleanProp('coryRebuildBusybox', false)
+def coryRebuildRust = coryBooleanProp('coryRebuildRust', false)
+def coryPythonLauncher = file("$rootDir/scripts/python.ps1")
+def coryFetchPrebuiltScript = file("$rootDir/scripts/fetch_prebuilt_assets.py")
 
-if (!coryPythonPrefixDir.exists()) {
-    throw new GradleException("Official CPython Android prefix not found at $coryPythonPrefixDir")
+def coryMissingVendoredAssets = {
+    return !coryPythonPrefixDir.exists()
+            || !coryNodeBinary.exists()
+            || !coryNodeStaticLib.exists()
+            || !coryRipgrepBinary.exists()
+            || !coryRustStaticLib.exists()
 }
 
 android {
@@ -43,7 +60,8 @@ android {
                 arguments(
                     '-DANDROID_STL=c++_shared',
                     '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON',
-                    '-DCORY_ENABLE_LITERT_LM=OFF'
+                    '-DCORY_ENABLE_LITERT_LM=OFF',
+                    "-DCORY_ENABLE_NODE_EMBED=${coryEnableNodeEmbed ? 'ON' : 'OFF'}"
                 )
             }
         }
@@ -60,6 +78,7 @@ android {
     }
 
     buildFeatures {
+        compose = true
         viewBinding = true
         prefab = true
     }
@@ -72,12 +91,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_1_8.toString()
+        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     buildTypes {
@@ -92,12 +111,57 @@ android {
 }
 
 dependencies {
+    implementation platform('androidx.compose:compose-bom:2026.03.00')
+    implementation 'androidx.activity:activity-compose:1.12.1'
     implementation 'androidx.core:core:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
     implementation 'androidx.games:games-activity:3.0.5'
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'com.google.ai.edge.litertlm:litertlm-android:0.9.0-alpha06'
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+}
+
+tasks.register('fetchVendoredAssets', Exec) {
+    workingDir(rootDir)
+    onlyIf {
+        coryMissingVendoredAssets()
+    }
+
+    if (org.gradle.internal.os.OperatingSystem.current().isWindows()) {
+        commandLine(
+                'powershell',
+                '-ExecutionPolicy', 'Bypass',
+                '-File', coryPythonLauncher.absolutePath,
+                coryFetchPrebuiltScript.absolutePath
+        )
+    } else {
+        commandLine('python3', coryFetchPrebuiltScript.absolutePath)
+    }
+}
+
+tasks.register('verifyVendoredAssets') {
+    dependsOn('fetchVendoredAssets')
+    doLast {
+        def missing = [
+                coryPythonPrefixDir,
+                coryNodeBinary,
+                coryNodeStaticLib,
+                coryRipgrepBinary,
+                coryRustStaticLib,
+        ].findAll { !it.exists() }
+        if (!missing.isEmpty()) {
+            throw new GradleException(
+                    "Required vendored assets are still missing after fetch:\n" +
+                            missing.collect { "- ${it}" }.join('\n')
+            )
+        }
+    }
 }
 
 tasks.register('preparePythonAssets', Copy) {
@@ -137,6 +201,10 @@ tasks.register('preparePythonAssets', Copy) {
 
 tasks.register('buildBusyboxArm64', Exec) {
     workingDir(coryBusyboxDir)
+    outputs.file(coryBusyboxBinary)
+    onlyIf {
+        coryRebuildBusybox || !coryBusyboxBinary.exists()
+    }
     commandLine(
             "${android.sdkDirectory}/ndk/${android.ndkVersion}/ndk-build",
             'NDK_PROJECT_PATH=.',
@@ -149,6 +217,10 @@ tasks.register('buildBusyboxArm64', Exec) {
 
 tasks.register('buildRustArm64', Exec) {
     workingDir(coryRustProjectDir)
+    outputs.file(coryRustStaticLib)
+    onlyIf {
+        coryRebuildRust || !coryRustStaticLib.exists()
+    }
     environment 'ANDROID_HOME', android.sdkDirectory.absolutePath
     environment 'ANDROID_SDK_ROOT', android.sdkDirectory.absolutePath
     environment 'ANDROID_NDK_HOME', "${android.sdkDirectory}/ndk/${android.ndkVersion}"
@@ -160,7 +232,7 @@ tasks.register('buildRustArm64', Exec) {
 }
 
 tasks.named('preparePythonAssets').configure {
-    dependsOn('buildBusyboxArm64')
+    dependsOn('verifyVendoredAssets', 'buildBusyboxArm64')
 }
 
 tasks.register('preparePythonJniLibs', Copy) {
@@ -174,5 +246,5 @@ tasks.register('preparePythonJniLibs', Copy) {
 }
 
 tasks.named('preBuild').configure {
-    dependsOn('buildBusyboxArm64', 'buildRustArm64', 'preparePythonAssets', 'preparePythonJniLibs')
+    dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'buildRustArm64', 'preparePythonAssets', 'preparePythonJniLibs')
 }

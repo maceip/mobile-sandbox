@@ -61,30 +61,33 @@ target_include_directories(
 )
 target_link_libraries(cory_libpython INTERFACE cory_python_runtime)
 
-add_library(cory_node_runtime STATIC IMPORTED GLOBAL)
-set_target_properties(
-    cory_node_runtime
-    PROPERTIES
-    IMPORTED_LOCATION "${cory_node_lib_dir}/liblibnode.a"
-    INTERFACE_INCLUDE_DIRECTORIES "${cory_node_include_src};${cory_node_include_v8};${cory_node_include_uv}"
-)
+option(CORY_ENABLE_NODE_EMBED "Link the prebuilt Android libnode bundle into orderfiledemo" OFF)
+if(CORY_ENABLE_NODE_EMBED)
+    add_library(cory_node_runtime STATIC IMPORTED GLOBAL)
+    set_target_properties(
+        cory_node_runtime
+        PROPERTIES
+        IMPORTED_LOCATION "${cory_node_lib_dir}/liblibnode.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${cory_node_include_src};${cory_node_include_v8};${cory_node_include_uv}"
+    )
 
-add_library(cory_libnode INTERFACE)
-target_include_directories(
-    cory_libnode
-    INTERFACE
-    "${cory_node_include_src}"
-    "${cory_node_include_v8}"
-    "${cory_node_include_uv}"
-)
-target_link_libraries(
-    cory_libnode
-    INTERFACE
-    cory_node_runtime
-    android
-    dl
-    log
-)
+    add_library(cory_libnode INTERFACE)
+    target_include_directories(
+        cory_libnode
+        INTERFACE
+        "${cory_node_include_src}"
+        "${cory_node_include_v8}"
+        "${cory_node_include_uv}"
+    )
+    target_link_libraries(
+        cory_libnode
+        INTERFACE
+        cory_node_runtime
+        android
+        dl
+        log
+    )
+endif()
 
 add_library(cory_rust_runtime STATIC IMPORTED GLOBAL)
 set_target_properties(
@@ -136,12 +139,15 @@ target_link_libraries(
     PRIVATE
     android
     cory_libgit2
-    cory_libnode
     cory_libpython
     cory_librust
     game-activity::game-activity_static
     log
 )
+
+if(CORY_ENABLE_NODE_EMBED)
+    target_link_libraries(orderfiledemo PRIVATE cory_libnode)
+endif()
 
 if(GENERATE_PROFILES)
     # Generating profiles requires any optimization flag aside from -O0.

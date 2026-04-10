@@ -10,6 +10,7 @@ Common flows:
 python scripts/cory_build.py doctor
 python scripts/cory_build.py full --sync-node-ec2
 python scripts/cory_build.py full --rebuild-node-ec2
+python scripts/build_all_assets.py --fetch-prebuilt --skip-node
 ```
 
 What it does:
@@ -17,6 +18,7 @@ What it does:
 - `doctor`: validates local prerequisites plus EC2 AWS access
 - `full --sync-node-ec2`: pulls the packaged `third_party/node24-android` bundle from EC2, then builds the app locally
 - `full --rebuild-node-ec2`: rebuilds the authoritative Android Node bundle on EC2, promotes it into the packaged bundle there, syncs it back here, then builds the app locally
+- `build_all_assets.py --fetch-prebuilt`: restores archived Android payloads from S3 before validation/build, which is the intended path for heavyweight artifacts that are excluded from the source bundle
 
 Source of truth for the custom Android Node build:
 
@@ -48,10 +50,25 @@ Useful variants:
 
 ```bash
 python3 scripts/build_all_assets.py --doctor-only
+python3 scripts/build_all_assets.py --fetch-prebuilt
 python3 scripts/build_all_assets.py --skip-node
 python3 scripts/build_all_assets.py --skip-ripgrep
 python3 scripts/build_all_assets.py --skip-app
 ```
+
+Prebuilt-asset flow:
+
+- source zips for CodeBuild intentionally exclude heavyweight payloads such as `third_party/node24-android/` and `third_party/ripgrep/target/`
+- `scripts/fetch_prebuilt_assets.py` restores archived payload tarballs from S3
+- `app/build.gradle` now auto-fetches the required payloads during a fresh build when they are missing
+- `codebuild/android-full/post_build_publish.sh` now republishes stable tarballs under `s3://$CORY_PUBLIC_ARTIFACTS_BUCKET/${CORY_PREBUILT_PREFIX:-builds/prebuilt/latest/}`
+- `codebuild/android-full/buildspec.yml` can opt into this path with `CORY_FETCH_PREBUILT=1`
+
+Node embed note:
+
+- the app still packages the standalone `node` binary into the sandbox when present
+- native linking against `liblibnode.a` is now opt-in via `-PcoryEnableNodeEmbed=true`
+- this keeps Compose/frontend iteration unblocked when the Node embed bundle is absent and only the shell-level `node` command path matters
 
 The script uses the existing repo-owned dependency builders:
 

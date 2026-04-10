@@ -100,6 +100,30 @@ def build_node(root: Path) -> None:
     log(f"synced {packaged_root} -> {target_root}")
 
 
+def fetch_prebuilt_assets(root: Path) -> None:
+    python = shutil.which("python3") or shutil.which("python")
+    if not python:
+        raise BuildFailure("required tool not found on PATH: python3 or python")
+    script = root / "scripts" / "fetch_prebuilt_assets.py"
+    run([python, str(script)], cwd=root)
+
+
+def prebuilt_node_available(root: Path) -> bool:
+    return all(
+        path.exists()
+        for path in (
+            root / "third_party" / "node24-android" / "bin" / "arm64-v8a" / "node",
+            root / "third_party" / "node24-android" / "lib" / "arm64-v8a" / "liblibnode.a",
+        )
+    )
+
+
+def prebuilt_ripgrep_available(root: Path) -> bool:
+    return (
+        root / "third_party" / "ripgrep" / "target" / "aarch64-linux-android" / "release" / "rg"
+    ).exists()
+
+
 def build_ripgrep(root: Path, env: dict[str, str]) -> None:
     require_tool("cargo")
     require_tool("cargo-ndk")
@@ -261,14 +285,29 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Only validate prerequisites",
     )
+    parser.add_argument(
+        "--fetch-prebuilt",
+        action="store_true",
+        help="Restore prebuilt Android payloads from S3 before validating or building",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     root = repo_root()
-    expect_node = not args.skip_node
-    expect_ripgrep = not args.skip_ripgrep
+    skip_node = args.skip_node
+    skip_ripgrep = args.skip_ripgrep
+    if args.fetch_prebuilt:
+        fetch_prebuilt_assets(root)
+        if not skip_node and prebuilt_node_available(root):
+            log("using restored prebuilt node24-android bundle")
+            skip_node = True
+        if not skip_ripgrep and prebuilt_ripgrep_available(root):
+            log("using restored prebuilt ripgrep binary")
+            skip_ripgrep = True
+    expect_node = not skip_node
+    expect_ripgrep = not skip_ripgrep
     expect_app = not args.skip_app
     try:
         doctor(root)
@@ -283,9 +322,9 @@ def main() -> int:
             return 0
         env = android_env(root)
         with managed_local_properties(root, env):
-            if not args.skip_node:
+            if not skip_node:
                 build_node(root)
-            if not args.skip_ripgrep:
+            if not skip_ripgrep:
                 build_ripgrep(root, env)
             if not args.skip_app:
                 build_app(root, env)

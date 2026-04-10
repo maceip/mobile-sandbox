@@ -6,6 +6,8 @@
 #
 # Optional:
 #   CORY_ARTIFACT_PREFIX          — S3 prefix, default builds/<build-id>/
+#   CORY_FETCH_PREBUILT           — if "1", restores archived prebuilt payloads from S3 before doctor/build
+#   CORY_PREBUILT_PREFIX          — stable S3 prefix for the archived payloads, default builds/prebuilt/latest/
 #   CORY_SKIP_NODE               — if "1", runs build_all_assets.py --skip-node
 #   CORY_SKIP_RIPGREP            — if "1", adds --skip-ripgrep
 #   CORY_SKIP_APP                — if "1", adds --skip-app (skips APK / Device Farm)
@@ -33,7 +35,10 @@ phases:
       - set -euo pipefail
       - export CORY_ROOT="${CODEBUILD_SRC_DIR}"
       - cd "$CORY_ROOT"
-      - python3 scripts/build_all_assets.py --doctor-only
+      - |
+        DOCTOR_ARGS=""
+        if [ "${CORY_FETCH_PREBUILT:-0}" = "1" ]; then DOCTOR_ARGS="$DOCTOR_ARGS --fetch-prebuilt"; fi
+        python3 scripts/build_all_assets.py --doctor-only $DOCTOR_ARGS
 
   build:
     commands:
@@ -42,6 +47,7 @@ phases:
       - cd "$CORY_ROOT"
       - |
         SKIP_ARGS=""
+        if [ "${CORY_FETCH_PREBUILT:-0}" = "1" ]; then SKIP_ARGS="$SKIP_ARGS --fetch-prebuilt"; fi
         if [ "${CORY_SKIP_NODE:-0}" = "1" ]; then SKIP_ARGS="$SKIP_ARGS --skip-node"; fi
         if [ "${CORY_SKIP_RIPGREP:-0}" = "1" ]; then SKIP_ARGS="$SKIP_ARGS --skip-ripgrep"; fi
         if [ "${CORY_SKIP_APP:-0}" = "1" ]; then SKIP_ARGS="$SKIP_ARGS --skip-app"; fi

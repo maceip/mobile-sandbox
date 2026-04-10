@@ -1,5 +1,6 @@
 # Local machine and tool state
 .cache/
+.uv-cache/
 .downloads/
 .gradle/
 .planning/

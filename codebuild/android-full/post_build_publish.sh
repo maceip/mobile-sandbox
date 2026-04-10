@@ -60,6 +60,37 @@ sync_public() {
   echo "post_build_publish: artifacts at s3://${CORY_PUBLIC_ARTIFACTS_BUCKET%/}/${PREFIX}"
 }
 
+sync_prebuilt_latest() {
+  local prebuilt_stage="$STAGE/prebuilt"
+  local prebuilt_prefix="${CORY_PREBUILT_PREFIX:-builds/prebuilt/latest/}"
+  mkdir -p "$prebuilt_stage"
+
+  if [ -d "$ROOT/third_party/node24-android" ]; then
+    tar -C "$ROOT" -czf "$prebuilt_stage/node24-android.tgz" third_party/node24-android
+  fi
+  if [ -d "$ROOT/third_party/python-android/prefix" ]; then
+    tar -C "$ROOT" -czf "$prebuilt_stage/python-android-prefix.tgz" third_party/python-android/prefix
+  fi
+  if [ -f "$ROOT/third_party/ndk-busybox-ref/libs/arm64-v8a/busybox" ]; then
+    tar -C "$ROOT" -czf "$prebuilt_stage/busybox-arm64-v8a.tgz" third_party/ndk-busybox-ref/libs/arm64-v8a
+  fi
+  if [ -f "$ROOT/third_party/ripgrep/target/aarch64-linux-android/release/rg" ]; then
+    tar -C "$ROOT" -czf "$prebuilt_stage/ripgrep-arm64-v8a.tgz" third_party/ripgrep/target/aarch64-linux-android/release
+  fi
+  if [ -d "$ROOT/rust/cory_rust/target/aarch64-linux-android/debug" ]; then
+    tar -C "$ROOT" -czf "$prebuilt_stage/rust-cory_rust-arm64-debug.tgz" rust/cory_rust/target/aarch64-linux-android/debug
+  fi
+
+  if compgen -G "$prebuilt_stage/*.tgz" > /dev/null; then
+    aws s3 sync "$prebuilt_stage" "s3://${CORY_PUBLIC_ARTIFACTS_BUCKET%/}/${prebuilt_prefix}" \
+      --region "${AWS_REGION:-eu-central-1}" \
+      --cache-control "public, max-age=300"
+    echo "post_build_publish: prebuilt bundles at s3://${CORY_PUBLIC_ARTIFACTS_BUCKET%/}/${prebuilt_prefix}"
+  else
+    echo "post_build_publish: no prebuilt bundles were generated"
+  fi
+}
+
 device_farm_run() {
   if [ -n "${CORY_SKIP_DEVICE_FARM:-}" ] && [ "$CORY_SKIP_DEVICE_FARM" != "0" ]; then
     echo "post_build_publish: CORY_SKIP_DEVICE_FARM set; skipping Device Farm"
@@ -151,4 +182,5 @@ device_farm_run() {
 
 require_bucket
 sync_public
+sync_prebuilt_latest
 device_farm_run
