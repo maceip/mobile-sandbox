@@ -13,24 +13,28 @@
         android:theme="@style/AppTheme">
         <activity
             android:name=".compose.ComposeSandboxActivity"
-            android:exported="false"
-            android:screenOrientation="sensorLandscape"
+            android:exported="true"
             android:theme="@style/AppTheme" />
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize"
-            android:exported="true"
-            android:screenOrientation="sensorLandscape"
+            android:exported="false"
             android:theme="@style/AppTheme">
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="orderfiledemo" />
+        </activity>
+        <activity-alias
+            android:name=".Launcher"
+            android:exported="true"
+            android:targetActivity=".compose.ComposeSandboxActivity"
+            android:theme="@style/AppTheme">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
     </application>
 
 </manifest>
