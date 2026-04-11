@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Cory Terminal</string>
+    <string name="terminal_exited_with_code">Terminal exited with code %1$d</string>
+    <string name="terminal_accessibility_line">Line %1$d: %2$s</string>
+    <string name="terminal_accessibility_session_tab">Session "%1$s"</string>
+    <string name="terminal_accessibility_current_session_tab">Current session "%1$s"</string>
+    <string name="terminal_accessibility_close_session_tab">Close session "%1$s"</string>
+    <string name="unknown_session">Terminal</string>
+    <string name="new_session">New Session</string>
+</resources>
