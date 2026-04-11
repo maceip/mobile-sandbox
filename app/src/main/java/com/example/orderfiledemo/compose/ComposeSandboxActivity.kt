@@ -28,6 +28,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class ComposeSandboxActivity : ComponentActivity() {
+
+    companion object {
+        init {
+            System.loadLibrary("c++_shared")
+            System.loadLibrary("orderfiledemo")
+        }
+    }
+
+    // JNI methods registered by orderfile.cpp
+    external fun runWorkload(pythonHome: String, sandboxRoot: String, tempDir: String)
+    external fun runScript(pythonHome: String, sandboxRoot: String, tempDir: String, scriptPath: String): String
+    external fun runCommand(pythonHome: String, sandboxRoot: String, tempDir: String, command: String): String
+    external fun nativeSummary(): String
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 

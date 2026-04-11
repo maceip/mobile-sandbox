@@ -14,12 +14,6 @@ get_filename_component(cory_node_lib_dir "${cory_node_root}/lib/${ANDROID_ABI}" 
 get_filename_component(cory_rust_root "${cory_root}/rust/cory_rust" ABSOLUTE)
 set(cory_rust_lib "${cory_rust_root}/target/aarch64-linux-android/debug/libcory_rust.a")
 
-find_package(game-activity REQUIRED CONFIG)
-
-# Export GameActivity_onCreate for the AGDK-style Java activity shell.
-set(CMAKE_SHARED_LINKER_FLAGS
-    "${CMAKE_SHARED_LINKER_FLAGS} -u GameActivity_onCreate -u Java_com_google_androidgamesdk_GameActivity_initializeNativeCode")
-
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build libgit2 as a static library" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "Disable libgit2 tests" FORCE)
 set(BUILD_CLI OFF CACHE BOOL "Disable the libgit2 CLI" FORCE)
@@ -111,9 +105,9 @@ option(CORY_ENABLE_LITERT_LM "Enable the vendored LiteRT-LM native super-build" 
 set(cory_litert_lm_enabled 0)
 
 option(GENERATE_PROFILES "PGO: -fprofile-generate" OFF)
-#set(USE_PROFILE "${CMAKE_SOURCE_DIR}/demo.orderfile")
 
-add_library(orderfiledemo SHARED android_main.cpp cory_python_module.cpp orderfile.cpp)
+# --- Main JNI library (Python embed, libgit2, Rust FFI) ---
+add_library(orderfiledemo SHARED cory_python_module.cpp orderfile.cpp)
 
 target_compile_features(orderfiledemo PRIVATE cxx_std_23)
 target_compile_options(orderfiledemo PRIVATE -Wall -Wextra -Werror)
@@ -141,7 +135,6 @@ target_link_libraries(
     cory_libgit2
     cory_libpython
     cory_librust
-    game-activity::game-activity_static
     log
 )
 
@@ -150,7 +143,6 @@ if(CORY_ENABLE_NODE_EMBED)
 endif()
 
 if(GENERATE_PROFILES)
-    # Generating profiles requires any optimization flag aside from -O0.
     target_compile_options(orderfiledemo PRIVATE -fprofile-generate -ftemporal-profile -O1)
     target_link_options(orderfiledemo PRIVATE -fprofile-generate -ftemporal-profile)
     target_compile_definitions(orderfiledemo PRIVATE GENERATE_PROFILES)

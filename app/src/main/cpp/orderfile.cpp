@@ -480,7 +480,7 @@ std::string BuildNativeSummary() {
       "rust         %s (%d)\n"
       "sandbox      inceptionsandbox runtime bootstrapped\n"
       "LiteRT-LM    %s via Maven AAR\n"
-      "entry        GameActivity + JNI bridge",
+      "entry        Compose + JNI bridge",
       major, minor, rev, CORY_PYTHON_VERSION, GetPythonStatus().c_str(),
       rust_runtime_name != nullptr ? rust_runtime_name : "Rust unavailable",
       rust_probe,
@@ -597,7 +597,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* _Nonnull vm,
     return JNI_ERR;
   }
 
-  jclass c = env->FindClass("com/example/orderfiledemo/MainActivity");
+  jclass c = env->FindClass("com/example/orderfiledemo/compose/ComposeSandboxActivity");
   if (c == nullptr) return JNI_ERR;
 
   static const JNINativeMethod methods[] = {
