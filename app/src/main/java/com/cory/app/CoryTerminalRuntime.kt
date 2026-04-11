@@ -1,4 +1,4 @@
-package com.example.orderfiledemo.compose
+package com.cory.app
 
 import android.content.Context
 import android.content.res.AssetManager

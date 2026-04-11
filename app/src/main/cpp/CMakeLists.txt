@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(OrderfileDemo LANGUAGES C CXX)
+project(Cory LANGUAGES C CXX)
 
 get_filename_component(cory_root "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
 get_filename_component(libgit2_src "${cory_root}/third_party/libgit2" ABSOLUTE)
@@ -55,7 +55,7 @@ target_include_directories(
 )
 target_link_libraries(cory_libpython INTERFACE cory_python_runtime)
 
-option(CORY_ENABLE_NODE_EMBED "Link the prebuilt Android libnode bundle into orderfiledemo" OFF)
+option(CORY_ENABLE_NODE_EMBED "Link the prebuilt Android libnode bundle into cory" OFF)
 if(CORY_ENABLE_NODE_EMBED)
     add_library(cory_node_runtime STATIC IMPORTED GLOBAL)
     set_target_properties(
@@ -107,29 +107,29 @@ set(cory_litert_lm_enabled 0)
 option(GENERATE_PROFILES "PGO: -fprofile-generate" OFF)
 
 # --- Main JNI library (Python embed, libgit2, Rust FFI) ---
-add_library(orderfiledemo SHARED cory_python_module.cpp orderfile.cpp)
+add_library(cory SHARED cory_python_module.cpp cory_jni.cpp)
 
-target_compile_features(orderfiledemo PRIVATE cxx_std_23)
-target_compile_options(orderfiledemo PRIVATE -Wall -Wextra -Werror)
+target_compile_features(cory PRIVATE cxx_std_23)
+target_compile_options(cory PRIVATE -Wall -Wextra -Werror)
 target_compile_definitions(
-    orderfiledemo
+    cory
     PRIVATE
     CORY_PYTHON_VERSION="${CORY_PYTHON_VERSION}"
     CORY_LITERT_LM_ENABLED=${cory_litert_lm_enabled}
 )
 target_link_options(
-    orderfiledemo
+    cory
     PRIVATE
     -Wl,--no-undefined-version
-    -Wl,--version-script,${CMAKE_CURRENT_SOURCE_DIR}/liborderfiledemo.map.txt
+    -Wl,--version-script,${CMAKE_CURRENT_SOURCE_DIR}/libcory.map.txt
 )
 set_target_properties(
-    orderfiledemo
+    cory
     PROPERTIES
-    LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/liborderfiledemo.map.txt
+    LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/libcory.map.txt
 )
 target_link_libraries(
-    orderfiledemo
+    cory
     PRIVATE
     android
     cory_libgit2
@@ -139,14 +139,14 @@ target_link_libraries(
 )
 
 if(CORY_ENABLE_NODE_EMBED)
-    target_link_libraries(orderfiledemo PRIVATE cory_libnode)
+    target_link_libraries(cory PRIVATE cory_libnode)
 endif()
 
 if(GENERATE_PROFILES)
-    target_compile_options(orderfiledemo PRIVATE -fprofile-generate -ftemporal-profile -O1)
-    target_link_options(orderfiledemo PRIVATE -fprofile-generate -ftemporal-profile)
-    target_compile_definitions(orderfiledemo PRIVATE GENERATE_PROFILES)
+    target_compile_options(cory PRIVATE -fprofile-generate -ftemporal-profile -O1)
+    target_link_options(cory PRIVATE -fprofile-generate -ftemporal-profile)
+    target_compile_definitions(cory PRIVATE GENERATE_PROFILES)
 elseif(USE_PROFILE)
-    target_compile_options(orderfiledemo PRIVATE)
-    target_link_options(orderfiledemo PRIVATE -Wl,--symbol-ordering-file=${USE_PROFILE} -Wl,--no-warn-symbol-ordering)
+    target_compile_options(cory PRIVATE)
+    target_link_options(cory PRIVATE -Wl,--symbol-ordering-file=${USE_PROFILE} -Wl,--no-warn-symbol-ordering)
 endif()

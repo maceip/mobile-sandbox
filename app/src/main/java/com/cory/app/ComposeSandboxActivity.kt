@@ -1,4 +1,4 @@
-package com.example.orderfiledemo.compose
+package com.cory.app
 
 import android.content.Intent
 import android.os.Build
@@ -32,11 +32,11 @@ class ComposeSandboxActivity : ComponentActivity() {
     companion object {
         init {
             System.loadLibrary("c++_shared")
-            System.loadLibrary("orderfiledemo")
+            System.loadLibrary("cory")
         }
     }
 
-    // JNI methods registered by orderfile.cpp
+    // JNI methods registered by cory_jni.cpp
     external fun runWorkload(pythonHome: String, sandboxRoot: String, tempDir: String)
     external fun runScript(pythonHome: String, sandboxRoot: String, tempDir: String, scriptPath: String): String
     external fun runCommand(pythonHome: String, sandboxRoot: String, tempDir: String, command: String): String

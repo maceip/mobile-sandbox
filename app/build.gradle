@@ -44,7 +44,7 @@ def coryMissingVendoredAssets = {
 }
 
 android {
-    namespace = 'com.example.orderfiledemo'
+    namespace = 'com.cory.app'
     compileSdk = 36
     ndkVersion = '27.2.12479018'
     aaptOptions {
@@ -52,7 +52,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.orderfiledemo"
+        applicationId = "com.cory.app"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-const char kLogTag[] = "orderfiledemo";
+const char kLogTag[] = "cory";
 
 #ifndef CORY_PYTHON_VERSION
 #define CORY_PYTHON_VERSION "unknown"
@@ -597,7 +597,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* _Nonnull vm,
     return JNI_ERR;
   }
 
-  jclass c = env->FindClass("com/example/orderfiledemo/compose/ComposeSandboxActivity");
+  jclass c = env->FindClass("com/cory/app/ComposeSandboxActivity");
   if (c == nullptr) return JNI_ERR;
 
   static const JNINativeMethod methods[] = {

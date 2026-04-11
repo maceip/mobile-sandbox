@@ -14,7 +14,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/AppTheme">
         <activity
-            android:name=".compose.ComposeSandboxActivity"
+            android:name=".ComposeSandboxActivity"
             android:exported="true"
             android:theme="@style/AppTheme">
             <intent-filter>

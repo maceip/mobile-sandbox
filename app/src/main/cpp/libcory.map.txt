@@ -1,4 +1,4 @@
-LIBORDERFILEDEMO {
+LIBCORY {
   global:
     JNI_OnLoad;
   local:
