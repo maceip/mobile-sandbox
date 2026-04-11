@@ -133,7 +133,7 @@ class TerminalManager private constructor(private val context: Context) {
      */
     suspend fun createNewSession(): TerminalSessionData {
         // Wait for bootstrap to finish before trying to exec bash.
-        _bootstrapComplete.first { it }
+        awaitBootstrap(_bootstrapComplete)
 
         return withContext(Dispatchers.IO) {
             val tempData = TerminalSessionData(
@@ -323,8 +323,9 @@ class TerminalManager private constructor(private val context: Context) {
     }
 }
 
-/** Suspend until a StateFlow emits a value matching [predicate]. */
-private suspend fun <T> StateFlow<T>.first(predicate: (T) -> Boolean): T {
-    if (predicate(value)) return value
-    return kotlinx.coroutines.flow.first(predicate)
+/** Suspend until the bootstrap flag is true. */
+private suspend fun awaitBootstrap(flow: StateFlow<Boolean>) {
+    while (!flow.value) {
+        kotlinx.coroutines.delay(50)
+    }
 }
