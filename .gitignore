@@ -43,3 +43,10 @@ node-android-build.tgz
 *.ap_
 *.aab
 *.tgz
+.apk-inspect/
+.gradle-user-home/
+.tmp-apk-chunks/
+compile.err
+compile.out
+phone-current.png
+window_dump.xml

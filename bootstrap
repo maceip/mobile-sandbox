@@ -1,0 +1,76 @@
+FINAL THINGS WE NEED:
+
+Here's the full picture of what needs wrappers/bootstrapping:
+
+Tool	What exists in mobile-sandbox	What's needed	Approach
+node	Raw binary in third_party/node24-android/bin/	Already works, just needs PATH	Bootstrap symlink
+npm / npx	Missing	Essential for Node.js projects	Bundle npm tarball in assets, extract at bootstrap
+python3	libpython3.14.so (shared lib, not executable)	Wrapper executable that calls Py_BytesMain()	Build python_shell.c via CMake
+pip	Missing	Essential for Python projects	Bootstrap via python3 -m ensurepip
+rg (ripgrep)	Binary in third_party/ripgrep/	Already works, needs PATH	Bootstrap symlink
+git	libgit2 (C library only, no CLI)	Real git CLI	Cross-compile or extract from Termux packages
+bash	libbash.so in OperitTerminalCore	Already handled	Bootstrap symlink (done)
+busybox	libbusybox.so in OperitTerminalCore	Already handled	Bootstrap symlinks (done)
+Let me update TerminalBootstrap.kt to handle the tools that come from mobile-sandbox's asset
+
+
+0. items to validate or fix
+
+Critical Issues (must fix)
+1. TerminalService is never started
+The foreground Service exists, has startForeground(), notification channel, the works — but nobody calls startService(). ComposeSandboxActivity bootstraps the terminal and renders the UI, but never starts the Service. The moment the user switches apps or the screen turns off, Android can kill the process and all PTY sessions die.
+
+Fix: Start the service when the first session is created.
+
+2. Submodule is stale and uninitialized
+terminal-core/ is pinned to f2ed980 — that's 3 commits behind master. Missing the TerminalService return type fix, the npm/pip bootstrap, and the adaptive API compilation fix. On a fresh clone, the directory is empty.
+
+Fix: git submodule update --init --recursive then update the pin.
+
+3. No session survival after process death
+The TerminalManager singleton keeps sessions alive across activity recreation (rotation, config changes). But if Android kills the process, everything is gone — PTY processes, session state, output history. There's no way to reconnect.
+
+This is expected for v1. Real session persistence (like tmux/screen) would require a native daemon. Flag it for later, don't try to solve it now. The foreground Service (issue #1) is what prevents the kill in the first place.
+
+Things That Are Actually Fine
+Keyboard input — CanvasTerminalView implements onCreateInputConnection() properly. Soft keyboard commits text through the IME, hardware keys (arrows, DEL, ENTER) are handled, and there's a two-row virtual keyboard (ESC, TAB, CTRL, ALT, arrows). The sendRawInput path exists for raw keystroke I/O without newline appending.
+
+Foldable dual-pane — One PTY per session, not two. The left pane is AgentView (parsed), the right pane is CanvasTerminalView (raw). They share the same session, just render it differently. No fighting.
+
+Native libraries — libpty.so loaded by the terminal module, liborderfiledemo.so loaded by the legacy MainActivity. Different components, no conflicts. Both ship in the APK.
+
+Build versions — AGP 8.13.0, Kotlin 2.1.20, Compose BOM 2026.03.00 all aligned between root and terminal module. One minor mismatch: app declares core-ktx:1.13.1 while terminal uses 1.15.0 from the catalog. Gradle will resolve to the higher version, not a problem.
+
+Launcher activity — ComposeSandboxActivity is correctly set as the launcher via an activity-alias. GameActivity (MainActivity) is still declared but not launched by default.
+
+1. Build python_shell.c (add to app/src/main/cpp/CMakeLists.txt)
+add_executable(python_shell ${CMAKE_CURRENT_SOURCE_DIR}/python_shell.c)
+target_link_libraries(python_shell cory_python_runtime android log)
+set_target_properties(python_shell PROPERTIES
+    OUTPUT_NAME "python_shell"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
+This produces libpython_shell.so — a real executable that Android extracts to the native lib dir. TerminalBootstrap symlinks it as python3.
+
+2. Bundle npm (add to preparePythonAssets task)
+Download npm once and add to assets:
+
+curl -fsSL https://registry.npmjs.org/npm/-/npm-10.9.2.tgz | tar xz
+mv package/ app/src/main/assets/npm/
+
+In the asset extraction code, copy it to filesDir/python/lib/node_modules/npm/. TerminalBootstrap creates bin/npm and bin/npx shell stubs automatically.
+
+3. That's it
+After those two changes, the user gets:
+
+cory$ python3 --version
+Python 3.14.0
+cory$ pip install flask
+cory$ node --version
+v24.0.0
+cory$ npm install express
+cory$ rg "hello" src/
+
+All from the terminal, all on PATH.

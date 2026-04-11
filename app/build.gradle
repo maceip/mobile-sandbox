@@ -14,11 +14,16 @@ def coryPythonPrefixDir = file("$coryPythonAndroidDir/prefix")
 def coryPythonVersion = '3.14.3'
 def coryPythonStdlibDir = 'python3.14'
 def coryPythonAbi = 'arm64-v8a'
+def coryNpmVersion = '10.9.2'
+def coryNpmTarball = file("$buildDir/downloads/npm-${coryNpmVersion}.tgz")
+def coryNpmUrl = "https://registry.npmjs.org/npm/-/npm-${coryNpmVersion}.tgz"
 def coryNodeBinary = file("$rootDir/third_party/node24-android/bin/${coryPythonAbi}/node")
 def coryNodeStaticLib = file("$rootDir/third_party/node24-android/lib/${coryPythonAbi}/liblibnode.a")
 def coryRipgrepBinary = file("$rootDir/third_party/ripgrep/target/aarch64-linux-android/release/rg")
 def coryBusyboxDir = file("$rootDir/third_party/ndk-busybox-ref")
 def coryBusyboxBinary = file("$coryBusyboxDir/libs/${coryPythonAbi}/busybox")
+def coryPythonBinary = file("$coryPythonPrefixDir/bin/python3")
+def coryPythonVersionedBinary = file("$coryPythonPrefixDir/bin/python3.14")
 def coryGeneratedPythonAssetsDir = file("$buildDir/generated/cory/python-assets")
 def coryGeneratedPythonJniLibsDir = file("$buildDir/generated/cory/python-jniLibs")
 def coryRustProjectDir = file("$rootDir/rust/cory_rust")
@@ -165,6 +170,21 @@ tasks.register('verifyVendoredAssets') {
     }
 }
 
+tasks.register('fetchNpmTarball') {
+    outputs.file(coryNpmTarball)
+    onlyIf {
+        !coryNpmTarball.exists()
+    }
+    doLast {
+        coryNpmTarball.parentFile.mkdirs()
+        new URL(coryNpmUrl).withInputStream { input ->
+            coryNpmTarball.withOutputStream { output ->
+                output << input
+            }
+        }
+    }
+}
+
 tasks.register('preparePythonAssets', Copy) {
     into(coryGeneratedPythonAssetsDir)
 
@@ -175,6 +195,23 @@ tasks.register('preparePythonAssets', Copy) {
             from('src/main/python')
         }
         rename(/.*(\.gz|-)/, '$0-')
+    }
+
+    into("python/lib/node_modules/npm") {
+        from(tarTree(resources.gzip(coryNpmTarball))) {
+            eachFile { details ->
+                def segments = details.relativePath.segments
+                if (segments.length < 2 || segments[0] != 'package') {
+                    details.exclude()
+                    return
+                }
+                details.relativePath = new org.gradle.api.file.RelativePath(
+                        details.isDirectory(),
+                        (String[]) segments[1..-1]
+                )
+            }
+            includeEmptyDirs = false
+        }
     }
 
     if (coryRipgrepBinary.exists()) {
@@ -192,6 +229,18 @@ tasks.register('preparePythonAssets', Copy) {
     if (coryBusyboxBinary.exists()) {
         into("python/bin") {
             from(coryBusyboxBinary)
+        }
+    }
+
+    if (coryPythonBinary.exists()) {
+        into("python/bin") {
+            from(coryPythonBinary)
+        }
+    }
+
+    if (coryPythonVersionedBinary.exists()) {
+        into("python/bin") {
+            from(coryPythonVersionedBinary)
         }
     }
 
@@ -233,7 +282,7 @@ tasks.register('buildRustArm64', Exec) {
 }
 
 tasks.named('preparePythonAssets').configure {
-    dependsOn('verifyVendoredAssets', 'buildBusyboxArm64')
+    dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'fetchNpmTarball')
 }
 
 tasks.register('preparePythonJniLibs', Copy) {
