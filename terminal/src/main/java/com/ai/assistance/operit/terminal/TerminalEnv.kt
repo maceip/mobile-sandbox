@@ -20,6 +20,7 @@ class TerminalEnv(
     currentDirectoryState: State<String>,
     isFullscreenState: State<Boolean>,
     terminalEmulatorState: State<AnsiTerminalEmulator>,
+    shadowEmulatorState: State<AnsiTerminalEmulator>,
     private val terminalManager: TerminalManager,
     val forceShowSetup: Boolean = false
 ) {
@@ -28,6 +29,8 @@ class TerminalEnv(
     val currentDirectory by currentDirectoryState
     val isFullscreen by isFullscreenState
     val terminalEmulator by terminalEmulatorState
+    /** Shadow emulator fixed at 80x24 for TUI scraping on narrow screens. */
+    val shadowEmulator by shadowEmulatorState
 
     var command by mutableStateOf("")
 
@@ -97,6 +100,8 @@ fun rememberTerminalEnv(terminalManager: TerminalManager, forceShowSetup: Boolea
     val isFullscreenState = terminalManager.isFullscreen.collectAsState(initial = false)
     val placeholderEmulator = remember { AnsiTerminalEmulator(screenWidth = 1, screenHeight = 1, historySize = 0) }
     val terminalEmulatorState = terminalManager.terminalEmulator.collectAsState(initial = placeholderEmulator)
+    val shadowPlaceholder = remember { AnsiTerminalEmulator(screenWidth = 80, screenHeight = 24, historySize = 0) }
+    val shadowEmulatorState = terminalManager.shadowEmulator.collectAsState(initial = shadowPlaceholder)
 
     return remember(terminalManager, forceShowSetup) {
         TerminalEnv(
@@ -105,6 +110,7 @@ fun rememberTerminalEnv(terminalManager: TerminalManager, forceShowSetup: Boolea
             currentDirectoryState = currentDirectoryState,
             isFullscreenState = isFullscreenState,
             terminalEmulatorState = terminalEmulatorState,
+            shadowEmulatorState = shadowEmulatorState,
             terminalManager = terminalManager,
             forceShowSetup = forceShowSetup
         )

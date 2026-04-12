@@ -84,6 +84,8 @@ data class TerminalSessionData(
     val readJob: Job? = null,
     val isFullscreen: Boolean = false,
     @Transient val ansiParser: AnsiTerminalEmulator = AnsiTerminalEmulator(),
+    /** Headless emulator fixed at 80x24 for TUI scraping on narrow screens. */
+    @Transient val shadowEmulator: AnsiTerminalEmulator = AnsiTerminalEmulator(screenWidth = 80, screenHeight = 24),
     @Transient var currentExecutingCommand: CommandHistoryItem? = null,
     @Transient var currentCommandStartedAtMs: Long? = null,
     @Transient var currentOutputLineCount: Int = 0,

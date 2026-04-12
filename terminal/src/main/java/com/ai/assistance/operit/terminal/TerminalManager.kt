@@ -65,6 +65,10 @@ class TerminalManager private constructor(private val context: Context) {
     private val _terminalEmulator = MutableStateFlow(AnsiTerminalEmulator(screenWidth = 80, screenHeight = 24))
     val terminalEmulator: StateFlow<AnsiTerminalEmulator> = _terminalEmulator.asStateFlow()
 
+    private val _shadowEmulator = MutableStateFlow(AnsiTerminalEmulator(screenWidth = 80, screenHeight = 24))
+    /** Shadow emulator: fixed at 80x24 for TUI scraping on narrow phone screens. */
+    val shadowEmulator: StateFlow<AnsiTerminalEmulator> = _shadowEmulator.asStateFlow()
+
     /** Full terminal state (used by TerminalScreen). */
     val terminalState: StateFlow<com.ai.assistance.operit.terminal.data.TerminalState>
         get() = sessionManager.state
@@ -118,6 +122,8 @@ class TerminalManager private constructor(private val context: Context) {
                 val current = state.currentSession
                 if (current != null) {
                     _terminalEmulator.value = current.ansiParser
+                    _shadowEmulator.value = current.shadowEmulator
+                    _isFullscreen.value = current.isFullscreen
                 }
             }
         }

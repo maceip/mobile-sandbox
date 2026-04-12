@@ -53,7 +53,12 @@ class OutputProcessor(
 
         // ANSI Canvas
         session.ansiParser.parse(chunk)
-        
+
+        // Always feed the shadow emulator (fixed 80x24) for TUI scraping.
+        // Runs in parallel with the display emulator so TuiBridgeView
+        // can decompose full-width TUI output into native phone widgets.
+        session.shadowEmulator.parse(chunk)
+
         if (session.isFullscreen) {
             // ansiParser
             return
