@@ -28,10 +28,6 @@ internal data class TerminalTabAccessibilitySnapshot(
     val addButtonRect: RectF = RectF()
 )
 
-/**
- * 为终端视图提供无障碍支持
- * 将终端内容按行暴露给屏幕阅读器，并补齐顶部标签栏的虚拟节点。
- */
 internal class TerminalAccessibilityDelegate(
     private val view: CanvasTerminalView,
     private val getEmulator: () -> AnsiTerminalEmulator?,
@@ -59,9 +55,6 @@ internal class TerminalAccessibilityDelegate(
         return nodeProvider
     }
 
-    /**
-     * 通知无障碍服务终端内容已更新
-     */
     fun notifyContentChanged() {
         view.post {
             if (!isAccessibilityEnabled()) return@post
@@ -72,10 +65,7 @@ internal class TerminalAccessibilityDelegate(
         }
     }
 
-    /**
-     * 为终端的每一行和顶部标签栏创建虚拟无障碍节点
-     */
-    private inner class TerminalAccessibilityNodeProvider : AccessibilityNodeProvider() {
+        private inner class TerminalAccessibilityNodeProvider : AccessibilityNodeProvider() {
 
         private val HOST_VIEW_ID = -1
         private val TAB_NODE_ID_BASE = 1_000

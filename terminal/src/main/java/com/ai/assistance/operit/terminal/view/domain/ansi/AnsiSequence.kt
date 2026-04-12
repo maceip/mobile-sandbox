@@ -3,16 +3,14 @@ package com.ai.assistance.operit.terminal.view.domain.ansi
 import android.graphics.Color
 
 /**
- * ANSI 序列类型
+ * ANSI 
  */
 sealed class AnsiSequence {
-    /** 普通文本字符 */
     data class Text(val char: Char) : AnsiSequence()
     
-    /** 控制字符 */
     data class ControlChar(val type: ControlCharType, val char: Char) : AnsiSequence()
     
-    /** CSI (Control Sequence Introducer) 序列 - ESC[ */
+    /** CSI (Control Sequence Introducer) - ESC[ */
     data class CSI(
         val params: List<Int>,
         val command: Char,
@@ -20,22 +18,18 @@ sealed class AnsiSequence {
         val private: Boolean = false
     ) : AnsiSequence()
     
-    /** OSC (Operating System Command) 序列 - ESC] */
+    /** OSC (Operating System Command) - ESC] */
     data class OSC(val command: Int, val data: String) : AnsiSequence()
     
-    /** 单字符转义序列 - ESC + 单字符 */
+    /** - ESC + */
     data class SingleEscape(val char: Char) : AnsiSequence()
     
-    /** DCS (Device Control String) 序列 - ESC P */
+    /** DCS (Device Control String) - ESC P */
     data class DCS(val data: String) : AnsiSequence()
     
-    /** 未知或不支持的序列 */
     data class Unknown(val raw: String) : AnsiSequence()
 }
 
-/**
- * 控制字符类型
- */
 enum class ControlCharType {
     NULL,           // \0 - Null
     BELL,           // \a - Bell/Alert
@@ -51,7 +45,7 @@ enum class ControlCharType {
 }
 
 /**
- * SGR (Select Graphic Rendition) 参数
+ * SGR (Select Graphic Rendition) 
  */
 sealed class SgrParameter {
     object Reset : SgrParameter()
@@ -83,9 +77,6 @@ sealed class SgrParameter {
     object DefaultBackground : SgrParameter()
 }
 
-/**
- * 光标移动方向
- */
 enum class CursorDirection {
     UP,
     DOWN,
@@ -93,26 +84,20 @@ enum class CursorDirection {
     BACK
 }
 
-/**
- * 屏幕清除模式
- */
 enum class EraseMode {
-    TO_END,         // 从光标到结尾
-    TO_START,       // 从开始到光标
-    ALL,            // 全部
-    SCROLLBACK      // 包括滚动缓冲区（仅用于 J=3）
+    TO_END,
+    TO_START,
+    ALL,
+    SCROLLBACK      // J=3
 }
 
-/**
- * 终端模式
- */
 data class TerminalMode(
     val number: Int,
     val isPrivate: Boolean,
     val name: String
 ) {
     companion object {
-        // 常用的 DEC 私有模式
+        // DEC
         val CURSOR_KEYS = TerminalMode(1, true, "DECCKM")          // Cursor Keys Mode
         val ANSI_VT52 = TerminalMode(2, true, "DECANM")            // ANSI/VT52 Mode
         val COLUMN_MODE = TerminalMode(3, true, "DECCOLM")         // Column Mode
@@ -125,15 +110,12 @@ data class TerminalMode(
         val ALT_SCREEN = TerminalMode(1049, true, "ALT_SCREEN")    // Alternate Screen Buffer
         val BRACKETED_PASTE = TerminalMode(2004, true, "BRACKETED_PASTE")
         
-        // ANSI 模式
+        // ANSI
         val INSERT_MODE = TerminalMode(4, false, "IRM")            // Insert/Replace Mode
         val LINE_FEED_MODE = TerminalMode(20, false, "LNM")        // Line Feed/New Line Mode
     }
 }
 
-/**
- * 文本属性
- */
 data class TextAttributes(
     val fgColor: Int = Color.WHITE,
     val bgColor: Int = Color.BLACK,
@@ -159,13 +141,7 @@ data class TextAttributes(
     fun applyForeground(color: Int) = copy(fgColor = color)
     fun applyBackground(color: Int) = copy(bgColor = color)
     
-    /**
-     * 获取有效的前景色（考虑反转）
-     */
-    fun getEffectiveForeground(): Int = if (isInverse) bgColor else fgColor
+        fun getEffectiveForeground(): Int = if (isInverse) bgColor else fgColor
     
-    /**
-     * 获取有效的背景色（考虑反转）
-     */
-    fun getEffectiveBackground(): Int = if (isInverse) fgColor else bgColor
+        fun getEffectiveBackground(): Int = if (isInverse) fgColor else bgColor
 } 

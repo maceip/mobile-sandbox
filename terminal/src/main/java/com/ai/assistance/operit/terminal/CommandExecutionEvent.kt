@@ -8,8 +8,8 @@ data class CommandExecutionEvent(
     val commandId: String,
     val command: String,
     val sessionId: String,
-    val outputChunk: String, // 命令执行过程量
-    val isCompleted: Boolean, // 是否执行完毕
+    val outputChunk: String,
+    val isCompleted: Boolean,
     val exitCode: Int? = null,
     val durationMs: Long? = null
 ) : Parcelable

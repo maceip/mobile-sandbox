@@ -5,10 +5,6 @@ import android.util.Log
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * 性能优化器
- * 包含脏区域追踪、帧率自适应、内存池等优化
- */
 class PerformanceOptimizer {
     
     companion object {
@@ -18,10 +14,7 @@ class PerformanceOptimizer {
         private const val MAX_FRAME_TIME_MS = 16L // ~60fps
     }
     
-    /**
-     * 脏区域追踪器
-     */
-    class DirtyRegionTracker {
+        class DirtyRegionTracker {
         private val dirtyRegions = mutableListOf<Rect>()
         private var fullRedrawNeeded = true
         
@@ -54,10 +47,7 @@ class PerformanceOptimizer {
             fullRedrawNeeded = false
         }
         
-        /**
-         * 合并相邻的脏区域以减少绘制调用
-         */
-        fun optimizeDirtyRegions(): List<Rect> {
+                fun optimizeDirtyRegions(): List<Rect> {
             if (dirtyRegions.isEmpty()) return emptyList()
             
             val merged = mutableListOf<Rect>()
@@ -79,17 +69,13 @@ class PerformanceOptimizer {
         }
         
         private fun shouldMerge(r1: Rect, r2: Rect): Boolean {
-            // 如果区域相交或非常接近，则合并
             val threshold = 50
             return Rect.intersects(r1, r2) ||
                    (r1.bottom >= r2.top - threshold && r1.right >= r2.left - threshold)
         }
     }
     
-    /**
-     * 帧率自适应控制器
-     */
-    class AdaptiveFrameRateController {
+        class AdaptiveFrameRateController {
         private val frameTimes = ArrayDeque<Long>(60)
         private var lastActivityTime = System.currentTimeMillis()
         private var currentFps = TARGET_FPS
@@ -108,7 +94,7 @@ class PerformanceOptimizer {
         fun getAdaptiveSleepTime(): Long {
             val idleTime = System.currentTimeMillis() - lastActivityTime
             
-            // 如果空闲超过1秒，降低帧率
+            // 1
             return when {
                 idleTime > 5000 -> 100 // 10fps when very idle
                 idleTime > 1000 -> 33  // 30fps when idle
@@ -126,13 +112,13 @@ class PerformanceOptimizer {
         
         fun shouldRender(): Boolean {
             val idleTime = System.currentTimeMillis() - lastActivityTime
-            // 如果超过5秒没有活动，每秒只渲染一次
+            // 5
             return idleTime < 5000 || (System.currentTimeMillis() % 1000) < 50
         }
     }
     
     /**
-     * 内存池 - 复用对象以减少GC压力
+     *  - GC
      */
     class ObjectPool<T>(
         private val factory: () -> T,
@@ -157,10 +143,7 @@ class PerformanceOptimizer {
         }
     }
     
-    /**
-     * 性能指标收集器
-     */
-    class PerformanceMetrics {
+        class PerformanceMetrics {
         private var frameCount = 0L
         private var totalFrameTime = 0L
         private var lastReportTime = System.currentTimeMillis()
@@ -169,7 +152,6 @@ class PerformanceOptimizer {
             frameCount++
             totalFrameTime += frameTimeMs
             
-            // 每秒报告一次
             val now = System.currentTimeMillis()
             if (now - lastReportTime >= 1000) {
                 val avgFrameTime = if (frameCount > 0) totalFrameTime / frameCount else 0

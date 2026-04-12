@@ -35,8 +35,8 @@ import android.view.accessibility.AccessibilityManager
  import kotlin.math.min
  
  /**
-  * 基于Canvas的高性能终端视图
-  * 使用SurfaceView + 独立渲染线程实现
+  * Canvas
+  * SurfaceView + 
  */
 class CanvasTerminalView @JvmOverloads constructor(
     context: Context,
@@ -44,15 +44,13 @@ class CanvasTerminalView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : SurfaceView(context, attrs, defStyleAttr), SurfaceHolder.Callback {
     
-    // 渲染配置
     private var config = RenderConfig()
     
-    // 暂停控制
     private val pauseLock = Object()
     @Volatile
     private var isPaused = false
     
-    // Paint对象（复用以提高性能）
+    // Paint
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         typeface = Typeface.MONOSPACE
@@ -70,7 +68,7 @@ class CanvasTerminalView @JvmOverloads constructor(
     }
     
     private val selectionPaint = Paint().apply {
-        color = Color.argb(100, 100, 149, 237) // 半透明蓝色
+        color = Color.argb(100, 100, 149, 237)
         style = Paint.Style.FILL
     }
 
@@ -131,10 +129,8 @@ class CanvasTerminalView @JvmOverloads constructor(
     private var imeAnimationOffsetPx: Int = 0
     private var committedImeBottomInsetPx: Int = 0
     
-    // 文本测量工具
     private val textMetrics: TextMetrics
     
-    // 终端模拟器
     private var emulator: AnsiTerminalEmulator? = null
     private var emulatorChangeListener: (() -> Unit)? = null
     private var emulatorNewOutputListener: (() -> Unit)? = null
@@ -427,11 +423,8 @@ class CanvasTerminalView @JvmOverloads constructor(
         return Pair(start, end)
     }
     
-    // 是否自动滚动到底部（当新内容到达时）
     private var autoScrollToBottom = true
-    // 用户是否正在手动滚动
     private var isUserScrolling = false
-    // 是否需要滚动到底部（在渲染时执行）
     private var needScrollToBottom = false
 
     // Top tab bar rendered inside SurfaceView
@@ -489,52 +482,44 @@ class CanvasTerminalView @JvmOverloads constructor(
     private val tabMinFlingVelocityPx = ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat()
     private val tabMaxFlingVelocityPx = ViewConfiguration.get(context).scaledMaximumFlingVelocity.toFloat()
     
-    // PTY 引用（用于窗口大小同步）
+    // PTY
     private var pty: com.ai.assistance.operit.terminal.Pty? = null
     
-    // 渲染线程
     private var renderThread: RenderThread? = null
     private val renderLock = ReentrantLock()
     private val renderCondition = renderLock.newCondition()
-    @Volatile private var isDirty = true // 是否需要重绘
+    @Volatile private var isDirty = true
     
-    // 手势处理
     private lateinit var gestureHandler: GestureHandler
     private val selectionManager = TextSelectionManager()
     
-    // 缩放因子
     private var scaleFactor = 1f
         set(value) {
             field = value.coerceIn(0.5f, 3f)
             updateFontSize()
         }
     
-    // 滚动偏移
     private var scrollOffsetY = 0f
     
-    // 惯性滚动处理器
     private val scroller: OverScroller by lazy { OverScroller(context) }
     private val tabScroller: OverScroller by lazy { OverScroller(context) }
     
-    // 输入回调
     private var inputCallback: ((String) -> Unit)? = null
     
-    // 点击请求显示键盘的回调（非全屏模式下由上层控制）
     private var onRequestShowKeyboard: (() -> Unit)? = null
     
-    // 会话ID和滚动位置回调
+    // ID
     private var sessionId: String? = null
     private var onScrollOffsetChanged: ((String, Float) -> Unit)? = null
     private var getScrollOffset: ((String) -> Float)? = null
     
-    // 缓存终端尺寸，避免重复调用
     private var cachedRows = 0
     private var cachedCols = 0
     
-    // 临时字符缓冲区，用于避免 drawChar 中的 String 分配
+    // drawChar String
     private val tempCharBuffer = CharArray(1)
     
-    // 文本选择ActionMode
+    // ActionMode
     private var actionMode: ActionMode? = null
 
     private enum class DragHandle {
@@ -562,22 +547,19 @@ class CanvasTerminalView @JvmOverloads constructor(
 
     private var activeDragHandle: DragHandle = DragHandle.NONE
     
-    // 全屏模式标记
     private var isFullscreenMode = true
     
-    // 方向键长按处理
     private val handler = Handler(Looper.getMainLooper())
     private var currentArrowKey: Int? = null
     private var arrowKeyRepeatRunnable: Runnable? = null
     private var isArrowKeyPressed = false
-    private val longPressDelay = 500L // 长按延迟时间（毫秒）
-    private val repeatInterval = 200L // 重复发送间隔（毫秒）
+    private val longPressDelay = 500L
+    private val repeatInterval = 200L
     
-    // 无障碍支持
     private val terminalAccessibilityDelegate: TerminalAccessibilityDelegate
     
     init {
-        // 显式固定 SurfaceView 合成行为，减少部分厂商系统上层级异常
+        // SurfaceView
         setZOrderOnTop(false)
         setZOrderMediaOverlay(false)
         holder.setFormat(PixelFormat.OPAQUE)
@@ -585,20 +567,15 @@ class CanvasTerminalView @JvmOverloads constructor(
         holder.addCallback(this)
         setWillNotDraw(false)
         
-        // 使视图可以获得焦点以接收输入法输入
         isFocusable = true
         isFocusableInTouchMode = true
         
-        // 初始化文本指标
         textMetrics = TextMetrics(textPaint, config)
         
-        // 加载并应用字体
         loadAndApplyFont()
         
-        // 初始化手势处理器
         initGestureHandler()
         
-        // 初始化无障碍支持
         terminalAccessibilityDelegate = TerminalAccessibilityDelegate(
             view = this,
             getEmulator = { emulator },
@@ -636,10 +613,10 @@ class CanvasTerminalView @JvmOverloads constructor(
         )
         accessibilityDelegate = terminalAccessibilityDelegate
         
-        // 重要：启用accessibility以让系统识别虚拟节点
+        // accessibility
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         
-        // 保持 SurfaceView 在默认窗口层，不作为透明/悬浮覆盖层参与合成
+        // SurfaceView /
     }
 
     private fun isAccessibilityEnabled(): Boolean {
@@ -647,28 +624,23 @@ class CanvasTerminalView @JvmOverloads constructor(
         return manager?.isEnabled == true
     }
     
-    /**
-     * 加载并应用字体
-     */
     private fun loadAndApplyFont() {
-        // 主字体已由 config.typeface 提供，直接应用
+        // config.typeface
         textMetrics.updateFromRenderConfig(config)
 
-        // 加载 Nerd Font (如果路径在 config 中未指定，则使用默认资源)
+        // Nerd Font ( config )
         val nerdFontResId = R.font.jetbrains_mono_nerd_font_regular
         val nerdTypeface = try {
-            // 优先从 config 的 nerdFontPath 加载
+            // config nerdFontPath
             config.nerdFontPath?.let { path ->
                 val file = File(path)
                 if (file.exists() && file.isFile) {
                     Typeface.createFromFile(file)
                 } else {
-                    // 如果路径无效，尝试加载默认资源
                     resources.getFont(nerdFontResId)
                 }
-            } ?: resources.getFont(nerdFontResId) // 如果路径为空，直接加载默认资源
+            } ?: resources.getFont(nerdFontResId)
         } catch (e: Exception) {
-            // 加载失败
             null
         }
         textMetrics.setNerdTypeface(nerdTypeface)
@@ -683,7 +655,6 @@ class CanvasTerminalView @JvmOverloads constructor(
             },
             onScroll = { _, distanceY ->
                 if (!selectionManager.hasSelection()) {
-                    // 手动滚动时停止惯性滚动
                     if (!scroller.isFinished) {
                         scroller.abortAnimation()
                     }
@@ -694,16 +665,13 @@ class CanvasTerminalView @JvmOverloads constructor(
                     }
                     scrollOffsetY = newOffset
                     
-                    // 保存滚动位置
                     sessionId?.let { id ->
                         onScrollOffsetChanged?.invoke(id, scrollOffsetY)
                     }
                     
-                    // 用户手动滚动，检测是否在底部
                     if (scrollOffsetY > 0f) {
                         isUserScrolling = true
                     } else {
-                        // 滚动到底部，恢复自动滚动
                         isUserScrolling = false
                     }
                     
@@ -712,7 +680,6 @@ class CanvasTerminalView @JvmOverloads constructor(
             },
             onFling = { velocityX, velocityY ->
                 if (!selectionManager.hasSelection()) {
-                    // 开始惯性滚动
                     val em = emulator ?: return@GestureHandler
                     val fullContent = em.getFullContent()
                     val charHeight = textMetrics.charHeight
@@ -726,17 +693,15 @@ class CanvasTerminalView @JvmOverloads constructor(
                     }
                     
                     scroller.fling(
-                        0, startY.toInt(),  // 起始位置
-                        0, (-velocityY).toInt(),    // 速度（Y方向反转）
-                        0, 0,                        // X范围
-                        0, maxScrollOffset           // Y范围
+                        0, startY.toInt(),
+                        0, (-velocityY).toInt(),    // Y
+                        0, 0,                        // X
+                        0, maxScrollOffset           // Y
                     )
                     requestRender()
                 }
             },
             onDoubleTap = { x, y ->
-                // 双击选择单词（可选实现）
-                // 也可以用来切换输入法（仅全屏模式）
                 if (isFullscreenMode) {
                     if (!hasFocus()) {
                         requestFocus()
@@ -750,43 +715,34 @@ class CanvasTerminalView @JvmOverloads constructor(
         )
     }
     
-    /**
-     * 设置终端模拟器
-     */
     fun setEmulator(emulator: AnsiTerminalEmulator) {
-        // 保存当前模拟器的滚动位置
         sessionId?.let { id ->
             onScrollOffsetChanged?.invoke(id, scrollOffsetY)
         }
 
-        // 移除旧的监听器
         removeEmulatorListeners()
         
         this.emulator = emulator
-        // 恢复新模拟器的滚动位置
         sessionId?.let { id ->
             getScrollOffset?.invoke(id)?.let { offset ->
                 scrollOffsetY = clampScrollOffset(offset)
             }
         }
         
-        // 添加新的监听器
         emulatorChangeListener = {
             isDirty = true
             requestRender()
-            // 通知无障碍服务内容已更新
-            // 直接使用成员变量以兼容 API < 29 (getAccessibilityDelegate 是 API 29+)
+            // API < 29 (getAccessibilityDelegate API 29+)
             terminalAccessibilityDelegate.notifyContentChanged()
         }
         emulator.addChangeListener(emulatorChangeListener!!)
         
-        // 添加新输出监听器（用于自动滚动到底部）
         emulatorNewOutputListener = {
             scheduleNewOutputDispatch()
         }
         emulator.addNewOutputListener(emulatorNewOutputListener!!)
         
-        // 如果 Surface 已经创建，立即同步终端大小
+        // Surface
         if (width > 0 && height > 0) {
             updateTerminalSize(width, height)
         }
@@ -822,18 +778,12 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
     }
 
-    /**
-     * 计算当前可用的最大滚动偏移
-     */
     private fun getMaxScrollOffset(): Float {
         val em = emulator ?: return 0f
         val contentHeight = em.getFullContent().size * textMetrics.charHeight
         return max(0f, contentHeight - getTerminalViewportHeight())
     }
 
-    /**
-     * 将滚动偏移限制在合法范围内
-     */
     private fun clampScrollOffset(offset: Float): Float {
         if (emulator == null) {
             return offset.coerceAtLeast(0f)
@@ -841,66 +791,47 @@ class CanvasTerminalView @JvmOverloads constructor(
         return offset.coerceIn(0f, getMaxScrollOffset())
     }
     
-    /**
-     * 设置滚动偏移（用于恢复会话滚动位置）
-     */
     fun setScrollOffset(offset: Float) {
         scrollOffsetY = clampScrollOffset(offset)
         requestRender()
     }
     
-    /**
-     * 获取当前滚动偏移（用于保存会话滚动位置）
-     */
     fun getScrollOffset(): Float = scrollOffsetY
     
-    /**
-     * 滚动到底部
-     */
-    fun scrollToBottom() {
+        fun scrollToBottom() {
         needScrollToBottom = true
-        isUserScrolling = false // 恢复自动滚动
+        isUserScrolling = false
         isDirty = true
         requestRender()
     }
     
     /**
-     * 设置 PTY（用于窗口大小同步）
+     *  PTY
      */
     fun setPty(pty: com.ai.assistance.operit.terminal.Pty?) {
         this.pty = pty
-        // 如果 Surface 已经创建且有 emulator，立即同步终端大小
+        // Surface emulator
         if (width > 0 && height > 0 && emulator != null) {
             updateTerminalSize(width, height)
         }
     }
     
-    /**
-     * 设置全屏模式
-     */
     fun setFullscreenMode(isFullscreen: Boolean) {
         isFullscreenMode = isFullscreen
-        // 非全屏模式下禁用焦点和输入法
         isFocusable = isFullscreen
         isFocusableInTouchMode = isFullscreen
     }
     
-    /**
-     * 设置输入回调
-     */
     fun setInputCallback(callback: (String) -> Unit) {
         this.inputCallback = callback
     }
     
-    /**
-     * 设置点击时请求显示软键盘的回调（仅非全屏模式使用）
-     */
     fun setOnRequestShowKeyboard(callback: (() -> Unit)?) {
         this.onRequestShowKeyboard = callback
     }
     
     /**
-     * 设置会话ID和滚动位置回调
+     * ID
      */
     fun setSessionScrollCallbacks(
         sessionId: String?,
@@ -911,7 +842,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         this.onScrollOffsetChanged = onScrollOffsetChanged
         this.getScrollOffset = getScrollOffset
         
-        // 如果设置了sessionId，立即恢复滚动位置
+        // sessionId
         sessionId?.let { id ->
             getScrollOffset?.invoke(id)?.let { offset ->
                 scrollOffsetY = clampScrollOffset(offset)
@@ -1038,23 +969,17 @@ class CanvasTerminalView @JvmOverloads constructor(
         tabScrollOffsetX = tabScrollOffsetX.coerceIn(0f, maxOffset)
     }
     
-    /**
-     * 设置缩放回调
-     */
     fun setScaleCallback(callback: (Float) -> Unit) {
-        // 当缩放因子变化时调用
         gestureHandler = GestureHandler(
             context = context,
             onScale = { scale ->
                 scaleFactor *= scale
                 callback(scaleFactor)
-                // 更新字体指标和终端大小
                 updateTerminalSize(holder.surfaceFrame.width(), holder.surfaceFrame.height())
                 requestRender()
             },
             onScroll = { _, distanceY ->
                 if (!selectionManager.hasSelection()) {
-                    // 手动滚动时停止惯性滚动
                     if (!scroller.isFinished) {
                         scroller.abortAnimation()
                     }
@@ -1065,16 +990,13 @@ class CanvasTerminalView @JvmOverloads constructor(
                     }
                     scrollOffsetY = newOffset
                     
-                    // 保存滚动位置
                     sessionId?.let { id ->
                         onScrollOffsetChanged?.invoke(id, scrollOffsetY)
                     }
                     
-                    // 用户手动滚动，检测是否在底部
                     if (scrollOffsetY > 0f) {
                         isUserScrolling = true
                     } else {
-                        // 滚动到底部，恢复自动滚动
                         isUserScrolling = false
                     }
                     
@@ -1083,7 +1005,6 @@ class CanvasTerminalView @JvmOverloads constructor(
             },
             onFling = { velocityX, velocityY ->
                 if (!selectionManager.hasSelection()) {
-                    // 开始惯性滚动
                     val em = emulator ?: return@GestureHandler
                     val fullContent = em.getFullContent()
                     val charHeight = textMetrics.charHeight
@@ -1097,16 +1018,15 @@ class CanvasTerminalView @JvmOverloads constructor(
                     }
                     
                     scroller.fling(
-                        0, startY.toInt(),  // 起始位置
-                        0, (-velocityY).toInt(),    // 速度（Y方向反转）
-                        0, 0,                        // X范围
-                        0, maxScrollOffset           // Y范围
+                        0, startY.toInt(),
+                        0, (-velocityY).toInt(),    // Y
+                        0, 0,                        // X
+                        0, maxScrollOffset           // Y
                     )
                     requestRender()
                 }
             },
             onDoubleTap = { x, y ->
-                // 双击选择单词（可选实现）
             },
             onLongPress = { x, y ->
                 startTextSelection(x, y)
@@ -1114,26 +1034,17 @@ class CanvasTerminalView @JvmOverloads constructor(
         )
     }
     
-    /**
-     * 设置性能监控回调
-     */
     fun setPerformanceCallback(callback: (fps: Float, frameTime: Long) -> Unit) {
-        // 性能监控逻辑可以在RenderThread中实现
-        // 这里暂时留空，可以后续扩展
+        // RenderThread
     }
     
-    /**
-     * 设置渲染配置
-     */
     fun setConfig(newConfig: RenderConfig) {
         val oldTypeface = config.typeface
         val oldNerdFontPath = config.nerdFontPath
         val oldFontSize = config.fontSize
 
-        // 更新配置
         config = newConfig
 
-        // 如果字体或字体大小改变了，重新加载并更新指标
         if (oldTypeface != newConfig.typeface ||
             oldNerdFontPath != newConfig.nerdFontPath ||
             oldFontSize != newConfig.fontSize
@@ -1142,36 +1053,28 @@ class CanvasTerminalView @JvmOverloads constructor(
             updateTerminalSize(holder.surfaceFrame.width(), holder.surfaceFrame.height())
             requestRender()
         } else {
-            // 其他配置改变，也需要重新渲染
             requestRender()
         }
     }
     
-    /**
-     * 更新字体大小
-     */
     private fun updateFontSize() {
-        // 字体大小的更新现在由 textMetrics.updateFromRenderConfig 处理
-        // 这里可以保留用于缩放手势等场景
+        // textMetrics.updateFromRenderConfig
         textMetrics.updateFromRenderConfig(config.copy(fontSize = config.fontSize * scaleFactor))
         updateTerminalSize(holder.surfaceFrame.width(), holder.surfaceFrame.height())
         requestRender()
     }
     
-    /**
-     * 请求渲染
-     */
     private fun requestRender() {
         isDirty = true
     }
     
-    // === SurfaceHolder.Callback 实现 ===
+    // === SurfaceHolder.Callback ===
     
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         Log.d("CanvasTerminalView", "onSizeChanged: ${w}x${h} (old: ${oldw}x${oldh})")
         
-        // 从无效尺寸恢复时，清空缓存以确保 PTY resize 被触发
+        // PTY resize
         if (w > 0 && h > 0 && (oldw <= 0 || oldh <= 0)) {
             cachedRows = 0
             cachedCols = 0
@@ -1183,15 +1086,15 @@ class CanvasTerminalView @JvmOverloads constructor(
             stopRenderThread()
             synchronized(pauseLock) { isPaused = true }
         } else {
-            // 如果线程不存在（之前被销毁了），这里不急着启动，交给 surfaceChanged 统一处理
-            // 只是确保 pause 状态解除
+            // surfaceChanged
+            // pause
             synchronized(pauseLock) { 
                 isPaused = false
                 pauseLock.notifyAll()
             }
             
-            // 尺寸发生变化时，重新计算并同步终端大小到 PTY
-            // 这样可以确保终端窗口大小与 View 大小保持一致
+            // PTY
+            // View
             if (oldw != w || oldh != h) {
                 Log.d("CanvasTerminalView", "onSizeChanged: Triggering updateTerminalSize(${w}x${h})")
                 tabContentWidth = measureTabContentWidth()
@@ -1203,8 +1106,8 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     override fun surfaceCreated(holder: SurfaceHolder) {
         Log.d("CanvasTerminalView", "surfaceCreated")
-        // surfaceCreated 时如果尺寸未知或为0，startRenderThread 会被调用但 run 循环会等待
-        // 但为了安全，我们尽量由 surfaceChanged 驱动
+        // surfaceCreated 0startRenderThread run
+        // surfaceChanged
         if (width > 0 && height > 0) {
             startRenderThread()
         }
@@ -1213,7 +1116,6 @@ class CanvasTerminalView @JvmOverloads constructor(
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         Log.d("CanvasTerminalView", "surfaceChanged: ${width}x${height}")
         
-        // 如果尺寸无效，停止渲染
         if (width <= 0 || height <= 0) {
             Log.d("CanvasTerminalView", "surfaceChanged: Invalid size, stopping render thread")
             stopRenderThread()
@@ -1223,19 +1125,16 @@ class CanvasTerminalView @JvmOverloads constructor(
             return
         }
         
-        // 恢复状态
         synchronized(pauseLock) {
             isPaused = false
             pauseLock.notifyAll()
         }
         
-        // 确保线程运行
         if (renderThread == null || !renderThread!!.isAlive) {
             Log.d("CanvasTerminalView", "surfaceChanged: Starting render thread for valid size")
             startRenderThread()
         }
 
-        // 更新终端窗口大小
         tabContentWidth = measureTabContentWidth()
         clampTabScrollOffset()
         updateTerminalSize(width, height)
@@ -1246,7 +1145,6 @@ class CanvasTerminalView @JvmOverloads constructor(
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         Log.d("CanvasTerminalView", "surfaceDestroyed")
         stopRenderThread()
-        // 清理方向键长按回调，避免内存泄漏
         handleArrowKeyUp()
     }
     
@@ -1255,7 +1153,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         super.onDetachedFromWindow()
     }
 
-    // === 渲染线程 ===
+    // === ===
     
     private fun startRenderThread() {
         Log.d("CanvasTerminalView", "startRenderThread: Starting new thread")
@@ -1266,8 +1164,8 @@ class CanvasTerminalView @JvmOverloads constructor(
     }
     
     /**
-     * 停止渲染线程
-     * 在视图被销毁或移除时调用，避免SurfaceView锁竞争导致ANR
+     *
+     * SurfaceViewANR
      */
     fun stopRenderThread() {
         Log.d("CanvasTerminalView", "stopRenderThread: Stopping thread")
@@ -1286,9 +1184,6 @@ class CanvasTerminalView @JvmOverloads constructor(
         renderThread = null
     }
 
-    /**
-     * 释放视图运行时资源，避免离开页面后持有外部对象引用。
-     */
     fun release() {
         stopRenderThread()
         handleArrowKeyUp()
@@ -1344,35 +1239,32 @@ class CanvasTerminalView @JvmOverloads constructor(
             
             while (running) {
                 try {
-                    // === 1. 状态检查 ===
-                    // 尺寸无效：休眠等待
+                    // === 1. ===
                     if (width <= 0 || height <= 0) {
                         sleep(200)
                         continue
                     }
                     
-                    // 暂停状态：等待唤醒
                     if (isPaused) {
                         synchronized(pauseLock) {
                             while (isPaused && running) {
                                 pauseLock.wait()
                             }
                         }
-                        lastRenderTime = System.currentTimeMillis() // 重置时间基准
+                        lastRenderTime = System.currentTimeMillis()
                         continue
                     }
                     
-                    // === 2. 帧率控制 ===
+                    // === 2. ===
                     val currentTime = System.currentTimeMillis()
                     val timeSinceLastRender = currentTime - lastRenderTime
                     
-                    // 未到渲染时间且无脏数据：短暂休眠
                     if (!isDirty && timeSinceLastRender < targetFrameTime) {
                         sleep(5)
                         continue
                     }
                     
-                    // === 3. 渲染 ===
+                    // === 3. ===
                     var canvas: Canvas? = null
                     try {
                         canvas = surfaceHolder.lockCanvas()
@@ -1381,7 +1273,7 @@ class CanvasTerminalView @JvmOverloads constructor(
                             isDirty = false
                             lastRenderTime = currentTime
                         } else {
-                            // Canvas 不可用，休眠后重试
+                            // Canvas
                             sleep(10)
                         }
                     } catch (e: Exception) {
@@ -1396,7 +1288,7 @@ class CanvasTerminalView @JvmOverloads constructor(
                         }
                     }
                     
-                    // === 4. 帧时间控制 ===
+                    // === 4. ===
                     if (canvas != null) {
                         val frameTime = System.currentTimeMillis() - currentTime
                         val sleepTime = targetFrameTime - frameTime
@@ -1789,7 +1681,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
     }
 
-    // === 核心渲染方法 ===
+    // === ===
     
     private fun drawTerminal(canvas: Canvas) {
         val em = emulator ?: return
@@ -1802,11 +1694,11 @@ class CanvasTerminalView @JvmOverloads constructor(
         canvas.save()
         canvas.clipRect(0f, 0f, viewportWidth, canvas.height.toFloat())
         try {
-            // 1. 先全屏清屏，防止前帧残留
+            // 1.
             bgPaint.color = config.backgroundColor
             canvas.drawRect(0f, 0f, viewportWidth, canvas.height.toFloat(), bgPaint)
 
-            // 2. 顶部标签栏
+            // 2.
             drawTabBar(canvas)
             if (viewportHeight <= 0f) {
                 return
@@ -1815,26 +1707,22 @@ class CanvasTerminalView @JvmOverloads constructor(
             canvas.save()
             canvas.clipRect(0f, contentTop, viewportWidth, contentBottom)
             try {
-                // 处理惯性滚动动画
                 if (scroller.computeScrollOffset()) {
                     val newScrollY = clampScrollOffset(scroller.currY.toFloat())
                     if (newScrollY != scrollOffsetY) {
                         scrollOffsetY = newScrollY
 
-                        // 保存滚动位置
                         sessionId?.let { id ->
                             onScrollOffsetChanged?.invoke(id, scrollOffsetY)
                         }
 
-                        // 更新用户滚动状态
                         isUserScrolling = scrollOffsetY > 0f
 
-                        // 继续请求渲染以保持动画流畅
                         isDirty = true
                     }
                 }
 
-                // 使用完整内容（历史 + 屏幕缓冲）
+                // +
                 val fullContent = em.getFullContent()
                 val historySize = em.getHistorySize()
 
@@ -1843,10 +1731,9 @@ class CanvasTerminalView @JvmOverloads constructor(
                 val baseline = textMetrics.charBaseline
                 if (charHeight <= 0f) return
 
-                // 限制最大滚动偏移（不能超过内容高度）
                 val maxScrollOffset = max(0f, fullContent.size * charHeight - viewportHeight)
 
-                // 如果需要滚动到底部，在渲染时执行（使用正确的 canvas.height）
+                // canvas.height
                 if (needScrollToBottom) {
                     scrollOffsetY = maxScrollOffset
                     needScrollToBottom = false
@@ -1854,7 +1741,6 @@ class CanvasTerminalView @JvmOverloads constructor(
 
                 scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScrollOffset)
 
-                // 计算可见区域
                 val visibleRows = (viewportHeight / charHeight).toInt() + 2
                 val startRow = (scrollOffsetY / charHeight).toInt().coerceAtLeast(0)
                 val endRow = min(startRow + visibleRows, fullContent.size)
@@ -1862,49 +1748,42 @@ class CanvasTerminalView @JvmOverloads constructor(
                 canvas.save()
                 canvas.translate(0f, -getTerminalVisualOffsetY().toFloat())
                 try {
-                    // 绘制每一行（包括背景）
                     for (row in startRow until endRow) {
                         if (row >= fullContent.size) break
 
                         val line = fullContent[row]
 
-                        // 使用绝对坐标计算，避免 startRow 跳变导致的整体偏移
+                        // startRow
                         val exactY = contentTop + row * charHeight - scrollOffsetY
                         val y = kotlin.math.round(exactY)
                         if (y + charHeight <= contentTop || y >= contentBottom) {
                             continue
                         }
 
-                        // 绘制该行的所有字符
                         drawLine(canvas, line, row, 0f, y, charWidth, charHeight, baseline)
                     }
 
-                    // 绘制选择区域
                     if (selectionManager.hasSelection()) {
                         drawSelection(canvas, charWidth, charHeight)
                     }
 
-                    // 绘制光标（光标只在可见屏幕部分显示，需要考虑历史缓冲区偏移）
                     if (em.isCursorVisible()) {
                         val cursorRow = historySize + em.getCursorY()
                         val cursorCol = em.getCursorX()
 
-                        // 只有当光标在可见区域内时才绘制
                         if (cursorRow >= startRow && cursorRow < endRow) {
                             val exactCursorY = contentTop + cursorRow * charHeight - scrollOffsetY
                             val cursorY = kotlin.math.round(exactCursorY)
                             if (cursorY + charHeight > contentTop && cursorY < contentBottom) {
-                                // 计算光标的 x 坐标，考虑宽字符
+                                // x
                                 val line = fullContent.getOrNull(cursorRow) ?: arrayOf()
                                 var cursorX = 0f
 
-                                // 遍历到光标列，累加每个字符的宽度
                                 for (col in 0 until cursorCol.coerceAtMost(line.size)) {
                                     val cellWidth = textMetrics.getCellWidth(line[col].char)
                                     cursorX += charWidth * cellWidth
                                 }
 
-                                // 获取光标所在字符的宽度
                                 val cursorCharWidth = if (cursorCol < line.size) {
                                     val cellWidth = textMetrics.getCellWidth(line[cursorCol].char)
                                     charWidth * cellWidth
@@ -2167,18 +2046,18 @@ class CanvasTerminalView @JvmOverloads constructor(
                 fullContent.getOrNull(row)?.size ?: 0
             }
             
-            // 计算选择区域的 x 坐标，考虑宽字符
+            // x
             val line = fullContent.getOrNull(row) ?: continue
             var x1 = 0f
             var x2 = 0f
             
-            // 计算起始 x 坐标
+            // x
             for (col in 0 until startCol.coerceAtMost(line.size)) {
                 val cellWidth = textMetrics.getCellWidth(line[col].char)
                 x1 += charWidth * cellWidth
             }
             
-            // 计算结束 x 坐标
+            // x
             for (col in 0..endCol.coerceAtMost(line.size - 1)) {
                 val cellWidth = textMetrics.getCellWidth(line[col].char)
                 x2 += charWidth * cellWidth
@@ -2188,45 +2067,41 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
     }
     
-    // === 无障碍支持 ===
+    // === ===
     
     /**
-     * 初始化无障碍节点信息
-     * 确保View本身不会被无障碍服务选中，只通过虚拟节点访问内容
+     *
+     * View
      */
     override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
         super.onInitializeAccessibilityNodeInfo(info)
-        // 关键：不设置任何描述性文本，让View对TalkBack透明
-        // 所有交互都通过虚拟节点（每一行）进行
+        // ViewTalkBack
         info.className = CanvasTerminalView::class.java.name
         info.isClickable = false
         info.isFocusable = false
         info.isLongClickable = false
-        // 不设置 contentDescription，避免整个View被朗读
+        // contentDescriptionView
     }
     
-    // === 触摸事件处理 ===
+    // === ===
     
     /**
-     * 处理悬停事件（用于无障碍触摸探索）
-     * 当用户使用TalkBack触摸屏幕时，会触发此方法
+     *
+     * TalkBack
      */
     override fun dispatchHoverEvent(event: MotionEvent): Boolean {
         if (!isAccessibilityEnabled()) {
             return super.dispatchHoverEvent(event)
         }
         
-        // 让accessibility delegate处理悬停事件
-        // 这样触摸探索时能找到对应的虚拟节点（行）
-        // 直接使用成员变量以兼容 API < 29 (getAccessibilityDelegate 是 API 29+)
+        // accessibility delegate
+        // API < 29 (getAccessibilityDelegate API 29+)
         terminalAccessibilityDelegate.let { delegate ->
             val virtualViewId = delegate.findVirtualViewAt(event.x, event.y)
             
             when (event.action) {
                 MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
-                    // 当触摸到一个虚拟节点时，主动请求该节点获得无障碍焦点
                     if (virtualViewId != -1) {
-                        // 获取节点提供者并请求焦点
                         accessibilityNodeProvider?.let { provider ->
                             provider.performAction(
                                 virtualViewId,
@@ -2235,7 +2110,6 @@ class CanvasTerminalView @JvmOverloads constructor(
                             )
                         }
                         
-                        // 发送悬停事件
                         val hoverEvent = android.view.accessibility.AccessibilityEvent.obtain(
                             android.view.accessibility.AccessibilityEvent.TYPE_VIEW_HOVER_ENTER
                         )
@@ -2247,7 +2121,6 @@ class CanvasTerminalView @JvmOverloads constructor(
                     }
                 }
                 MotionEvent.ACTION_HOVER_EXIT -> {
-                    // 悬停退出时不清除焦点，让焦点保持在最后一个触摸的节点上
                 }
             }
         }
@@ -2262,7 +2135,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         var handled = gestureHandler.onTouchEvent(event)
         val action = event.actionMasked
         
-        // 单击时请求焦点；显示输入法延后到 ACTION_UP，避免长按选择时提前弹出输入法造成卡手
+        // ACTION_UP
         if (action == MotionEvent.ACTION_DOWN) {
             touchDownX = event.x
             touchDownY = event.y
@@ -2302,7 +2175,6 @@ class CanvasTerminalView @JvmOverloads constructor(
             hasMovedBeyondTouchSlop = true
         }
         
-        // 处理选择移动
         if (action == MotionEvent.ACTION_MOVE) {
             if (!hasMovedBeyondTouchSlop) {
                 val dx = abs(event.x - touchDownX)
@@ -2369,10 +2241,6 @@ class CanvasTerminalView @JvmOverloads constructor(
         return handled || super.onTouchEvent(event)
     }
     
-    /**
-     * 屏幕坐标转换为终端坐标
-     * 考虑宽字符的影响
-     */
     private fun screenToTerminalCoords(x: Float, y: Float): Pair<Int, Int> {
         val em = emulator ?: return Pair(0, 0)
         val fullContent = em.getFullContent()
@@ -2383,10 +2251,8 @@ class CanvasTerminalView @JvmOverloads constructor(
         val localY = (y + getTerminalVisualOffsetY() - getTerminalContentTop()).coerceAtLeast(0f)
         val row = ((localY + scrollOffsetY) / textMetrics.charHeight).toInt().coerceIn(0, fullContent.size - 1)
         
-        // 获取该行的内容
         val line = fullContent.getOrNull(row) ?: return Pair(row, 0)
         
-        // 遍历该行的字符，找到对应的列
         var currentX = 0f
         var col = 0
         val charWidth = textMetrics.charWidth
@@ -2396,11 +2262,9 @@ class CanvasTerminalView @JvmOverloads constructor(
             val actualCharWidth = charWidth * cellWidth
             
             if (x < currentX + actualCharWidth / 2) {
-                // 点击位置在这个字符的前半部分
                 col = i
                 break
             } else if (x < currentX + actualCharWidth) {
-                // 点击位置在这个字符的后半部分（宽字符）
                 col = i
                 break
             }
@@ -2412,18 +2276,12 @@ class CanvasTerminalView @JvmOverloads constructor(
         return Pair(row, col.coerceIn(0, max(0, line.size - 1)))
     }
     
-    /**
-     * 开始文本选择
-     */
     private fun startTextSelection(x: Float, y: Float) {
         val (row, col) = screenToTerminalCoords(x, y)
         selectionManager.startSelection(row, col)
         requestRender()
     }
     
-    /**
-     * 显示文本选择菜单
-     */
     private fun showTextSelectionMenu() {
         if (actionMode != null) return
         
@@ -2465,7 +2323,7 @@ class CanvasTerminalView @JvmOverloads constructor(
             }
 
             override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-                menu.add(0, 1, 0, "复制")
+                menu.add(0, 1, 0, "Copy")
                 return true
             }
 
@@ -2498,9 +2356,6 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
     }
     
-    /**
-     * 复制选中的文本
-     */
     private fun copySelectedText() {
         val selection = selectionManager.selection?.normalize() ?: return
         val buffer = emulator?.getFullContent() ?: return
@@ -2541,28 +2396,19 @@ class CanvasTerminalView @JvmOverloads constructor(
         clipboard.setPrimaryClip(ClipData.newPlainText("Terminal", text))
     }
     
-    // === 输入法支持 ===
+    // === ===
     
-    /**
-     * 显示软键盘
-     */
-    private fun showSoftKeyboard() {
+        private fun showSoftKeyboard() {
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
         imm?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
     }
     
-    /**
-     * 隐藏软键盘
-     */
     fun hideSoftKeyboard() {
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
         imm?.hideSoftInputFromWindow(windowToken, 0)
     }
     
-    /**
-     * 创建输入连接
-     */
-    override fun onCreateInputConnection(outAttrs: EditorInfo?): InputConnection {
+        override fun onCreateInputConnection(outAttrs: EditorInfo?): InputConnection {
         outAttrs?.apply {
             inputType = EditorInfo.TYPE_CLASS_TEXT
             imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN or EditorInfo.IME_ACTION_NONE
@@ -2581,7 +2427,6 @@ class CanvasTerminalView @JvmOverloads constructor(
             
             override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
                 if (beforeLength > 0) {
-                    // 发送退格键
                     inputCallback?.invoke("\u007F") // DEL character
                 }
                 return true
@@ -2604,7 +2449,6 @@ class CanvasTerminalView @JvmOverloads constructor(
                                 KeyEvent.KEYCODE_DPAD_DOWN,
                                 KeyEvent.KEYCODE_DPAD_LEFT,
                                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                    // 全屏模式下处理方向键长按
                                     if (isFullscreenMode) {
                                         handleArrowKeyDown(it.keyCode)
                                         return true
@@ -2618,7 +2462,6 @@ class CanvasTerminalView @JvmOverloads constructor(
                                 KeyEvent.KEYCODE_DPAD_DOWN,
                                 KeyEvent.KEYCODE_DPAD_LEFT,
                                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                    // 全屏模式下处理方向键释放
                                     if (isFullscreenMode) {
                                         handleArrowKeyUp()
                                         return true
@@ -2633,11 +2476,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
     }
     
-    /**
-     * 处理方向键按下
-     */
     private fun handleArrowKeyDown(keyCode: Int) {
-        // 如果已经有其他方向键被按下，先释放
         if (isArrowKeyPressed && currentArrowKey != keyCode) {
             handleArrowKeyUp()
         }
@@ -2645,10 +2484,8 @@ class CanvasTerminalView @JvmOverloads constructor(
         currentArrowKey = keyCode
         isArrowKeyPressed = true
         
-        // 立即发送一次方向键
         sendArrowKey(keyCode)
         
-        // 延迟后开始重复发送
         arrowKeyRepeatRunnable = object : Runnable {
             override fun run() {
                 if (isArrowKeyPressed && currentArrowKey == keyCode) {
@@ -2660,9 +2497,6 @@ class CanvasTerminalView @JvmOverloads constructor(
         handler.postDelayed(arrowKeyRepeatRunnable!!, longPressDelay)
     }
     
-    /**
-     * 处理方向键释放
-     */
     private fun handleArrowKeyUp() {
         isArrowKeyPressed = false
         currentArrowKey = null
@@ -2673,7 +2507,7 @@ class CanvasTerminalView @JvmOverloads constructor(
     }
     
     /**
-     * 发送方向键的 ANSI 转义序列
+     *  ANSI 
      */
     private fun sendArrowKey(keyCode: Int) {
         val escapeSequence = when (keyCode) {
@@ -2686,36 +2520,25 @@ class CanvasTerminalView @JvmOverloads constructor(
         inputCallback?.invoke(escapeSequence)
     }
     
-    /**
-     * 检查是否可以显示输入法
-     */
-    override fun onCheckIsTextEditor(): Boolean {
+        override fun onCheckIsTextEditor(): Boolean {
         return isFullscreenMode
     }
     
-    /**
-     * 更新终端窗口大小
-     */
     private fun updateTerminalSize(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
         val contentTop = getTerminalContentTop()
         val contentHeight =
             (height - contentTop - committedImeBottomInsetPx).toInt().coerceAtLeast(1)
 
-        // 1. 记录当前的滚动状态（基于行数，而不是像素）
-        // 这样在缩放后可以恢复到相同的逻辑位置
+        // 1.
         val oldCharHeight = textMetrics.charHeight
         val currentScrollRows = if (oldCharHeight > 0) scrollOffsetY / oldCharHeight else 0f
         
-        // 确保字体指标已更新（基于当前缩放因子）
         textMetrics.updateFromRenderConfig(config.copy(fontSize = config.fontSize * scaleFactor))
 
-        // 计算终端尺寸（行和列）
-        // 现在终端模拟器支持重排，可以正常根据字体大小调整列数
         val cols = (width / textMetrics.charWidth).toInt().coerceAtLeast(1)
         val rows = (contentHeight / textMetrics.charHeight).toInt().coerceAtLeast(1)
         
-        // 只有当尺寸真正发生变化时才更新
         if (rows == cachedRows && cols == cachedCols) {
             return
         }
@@ -2723,23 +2546,19 @@ class CanvasTerminalView @JvmOverloads constructor(
         cachedRows = rows
         cachedCols = cols
         
-        // 更新模拟器尺寸
         emulator?.resize(cols, rows)
         
-        // 2. 恢复滚动位置
-        // 使用新的行高计算新的像素偏移量
+        // 2.
         if (emulator != null) {
             val newCharHeight = textMetrics.charHeight
-            // 重新计算最大滚动范围
             val fullContentSize = emulator?.getFullContent()?.size ?: 0
             val maxScrollOffset = max(0f, fullContentSize * newCharHeight - contentHeight)
             
-            // 恢复之前的行位置
             scrollOffsetY = (currentScrollRows * newCharHeight).coerceIn(0f, maxScrollOffset)
         }
         
-        // 同步 PTY 窗口尺寸
-        // 使用后台线程执行，避免ANR（特别是在SSH会话或PTY阻塞时）
+        // PTY
+        // ANRSSHPTY
         val targetPty = pty
         Thread {
             try {

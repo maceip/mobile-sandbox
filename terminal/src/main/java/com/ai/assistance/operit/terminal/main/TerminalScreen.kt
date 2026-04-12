@@ -56,8 +56,7 @@ fun TerminalScreen(
     val tabs = env.sessions.mapIndexed { index, session ->
         TerminalTabRenderItem(
             id = session.id,
-            title = session.title.ifBlank { "Shell ${index + 1}" },
-            canClose = index > 0
+            title = session.title.ifBlank { "Shell ${index + 1}" }
         )
     }
 

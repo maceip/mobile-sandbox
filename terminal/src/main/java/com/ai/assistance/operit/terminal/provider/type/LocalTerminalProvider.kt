@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Local terminal provider.
  *
- * Launches a bash shell directly via PTY — no proot, no Ubuntu rootfs.
+ * Launches a bash shell directly via PTY.
  * Tools (python, node, rg, git, etc.) are expected in PREFIX/bin,
  * set up by [TerminalBootstrap].
  */

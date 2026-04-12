@@ -39,7 +39,7 @@ class TerminalService : Service() {
 
     private val binder = object : ITerminalService.Stub() {
         override fun createSession(): String {
-            // 使用 runBlocking 调用 suspend 函数
+            // runBlocking suspend
             return runBlocking {
                 try {
                     val newSession = terminalManager.createNewSession()
@@ -79,7 +79,6 @@ class TerminalService : Service() {
         }
 
         override fun requestStateUpdate() {
-            // 新架构下不需要请求完整状态更新
         }
     }
 
@@ -88,7 +87,6 @@ class TerminalService : Service() {
         startForegroundCompat()
         terminalManager = TerminalManager.getInstance(applicationContext)
         
-        // 监听命令执行事件
         terminalManager.commandExecutionEvents
             .onEach { event ->
                 Log.d("TerminalService", "Received command execution event: $event")
@@ -96,7 +94,6 @@ class TerminalService : Service() {
             }
             .launchIn(scope)
             
-        // 监听目录变化事件
         terminalManager.directoryChangeEvents
             .onEach { event ->
                 Log.d("TerminalService", "Received directory change event: $event")
@@ -115,7 +112,6 @@ class TerminalService : Service() {
         callbacks.kill()
     }
     
-    // 事件广播方法
     private fun broadcastCommandExecutionEvent(event: CommandExecutionEvent) {
         val n = callbacks.beginBroadcast()
         Log.d("TerminalService", "Broadcasting command execution event to $n callbacks: $event")

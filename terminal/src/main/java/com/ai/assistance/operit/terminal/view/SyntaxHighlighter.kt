@@ -11,15 +11,15 @@ import androidx.compose.ui.text.withStyle
 import java.util.regex.Pattern
 
 object SyntaxColors {
-    val keyword = Color(0xFF569CD6)       // 淡蓝色，用于if, for等关键字
-    val command = Color(0xFF4EC9B0)       // 蓝绿色，用于ls, cd等常见命令
-    val string = Color(0xFFD69D85)        // 橙色，用于字符串
-    val comment = Color(0xFF6A9955)       // 绿色，用于注释
-    val operator = Color(0xFFB5CEA8)      // 灰绿色，用于管道符、重定向等
-    val warning = Color(0xFFFBC02D)       // 黄色，用于警告
-    val error = Color(0xFFE53935)         // 红色，用于错误
-    val default = Color.White             // 默认颜色
-    val commandDefault = Color(0xFF66BB6A) // 命令输入的默认颜色 (淡绿色)
+    val keyword = Color(0xFF569CD6)       // if, for
+    val command = Color(0xFF4EC9B0)       // ls, cd
+    val string = Color(0xFFD69D85)
+    val comment = Color(0xFF6A9955)
+    val operator = Color(0xFFB5CEA8)
+    val warning = Color(0xFFFBC02D)
+    val error = Color(0xFFE53935)
+    val default = Color.White
+    val commandDefault = Color(0xFF66BB6A) // ()
 }
 
 private val commandPattern = Pattern.compile(
@@ -76,12 +76,10 @@ private fun highlightWithPattern(code: String, pattern: Pattern, defaultColor: C
     }
 }
 
-
 fun highlight(code: String, isCommand: Boolean = false): AnnotatedString {
     return if (isCommand) {
         highlightWithPattern(code, commandPattern, SyntaxColors.commandDefault)
     } else {
-        // 逐行处理输出
         val lines = code.split('\n')
         buildAnnotatedString {
             lines.forEachIndexed { index, line ->
@@ -93,7 +91,6 @@ fun highlight(code: String, isCommand: Boolean = false): AnnotatedString {
         }
     }
 }
-
 
 class SyntaxHighlightingVisualTransformation : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {

@@ -12,17 +12,11 @@ import kotlinx.serialization.Serializable
 import java.io.OutputStreamWriter
 import java.util.UUID
 
-/**
- * 队列中的命令项
- */
 data class QueuedCommand(
     val id: String,
     val command: String
 )
 
-/**
- * 命令历史项数据类
- */
 class CommandHistoryItem(
     val id: String,
     prompt: String,
@@ -37,13 +31,13 @@ class CommandHistoryItem(
     
     val outputPages = mutableStateListOf<String>()
     
-    // 为AIDL序列化提供稳定的getter
+    // AIDLgetter
     val prompt: String get() = _prompt
     val command: String get() = _command
     val output: String get() = _output
     val isExecuting: Boolean get() = _isExecuting
     
-    // 为UI更新提供setter方法
+    // UIsetter
     fun setPrompt(value: String) { _prompt = value }
     fun setCommand(value: String) { _command = value }
     fun setOutput(value: String) { _output = value }
@@ -65,9 +59,6 @@ class CommandHistoryItem(
     }
 }
 
-/**
- * 会话初始化状态枚举
- */
 enum class SessionInitState {
     INITIALIZING,
     LOGGED_IN,
@@ -75,15 +66,12 @@ enum class SessionInitState {
     READY
 }
 
-/**
- * 终端会话数据类
- */
 data class TerminalSessionData(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     val terminalType: TerminalType = TerminalType.LOCAL,
     val terminalSession: com.ai.assistance.operit.terminal.TerminalSession? = null,
-    val pty: com.ai.assistance.operit.terminal.Pty? = null, // PTY 对象，用于获取终端模式
+    val pty: com.ai.assistance.operit.terminal.Pty? = null, // PTY
     val sessionWriter: OutputStreamWriter? = null,
     val currentDirectory: String = "$ ",
     @Transient val currentCommandOutput: StringBuilder = StringBuilder(),
@@ -101,16 +89,12 @@ data class TerminalSessionData(
     @Transient var currentOutputLineCount: Int = 0,
     @Transient val commandQueue: MutableList<QueuedCommand> = mutableListOf(),
     @Transient val commandMutex: Mutex = Mutex(),
-    // 保存每个会话的滚动位置
     var scrollOffsetY: Float = 0f
 ) {
     val isInitializing: Boolean
         get() = initState != SessionInitState.READY
 }
 
-/**
- * 终端状态数据类
- */
 data class TerminalState(
     val sessions: List<TerminalSessionData> = emptyList(),
     val currentSessionId: String? = null,
@@ -123,9 +107,6 @@ data class TerminalState(
         }
 }
 
-/**
- * 包管理器类型
- */
 enum class PackageManagerType(val displayName: String) {
     APT("APT"),
     PIP("Pip/Uv"),
@@ -133,9 +114,6 @@ enum class PackageManagerType(val displayName: String) {
     RUST("Rust/Cargo")
 }
 
-/**
- * 镜像源信息
- */
 @Serializable
 data class MirrorSource(
     val id: String,
@@ -144,9 +122,6 @@ data class MirrorSource(
     val isHttps: Boolean = false
 )
 
-/**
- * 源配置
- */
 data class SourceConfig(
     val packageManager: PackageManagerType,
     val selectedSourceId: String,

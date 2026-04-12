@@ -7,10 +7,6 @@ import android.view.ScaleGestureDetector
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * 手势处理器
- * 支持缩放、滚动、文本选择
- */
 class GestureHandler(
     context: Context,
     private val onScale: (Float) -> Unit,
@@ -85,9 +81,6 @@ class GestureHandler(
         })
     }
     
-    /**
-     * 处理触摸事件
-     */
     fun onTouchEvent(event: MotionEvent): Boolean {
         var handled = scaleGestureDetector.onTouchEvent(event)
         handled = gestureDetector.onTouchEvent(event) || handled
@@ -95,9 +88,6 @@ class GestureHandler(
     }
 }
 
-/**
- * 文本选择管理器
- */
 class TextSelectionManager {
     data class Selection(
         val startRow: Int,
