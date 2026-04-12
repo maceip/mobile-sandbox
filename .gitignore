@@ -28,6 +28,7 @@ third_party/ripgrep/target/
 # Vendored prebuilt bundles fetched/generated outside normal source control
 third_party/node24-android/
 third_party/python-android/prefix/
+third_party/shell-deps/
 
 # Local worktrees, downloaded toolchains, and scratch builds
 work/
