@@ -106,7 +106,18 @@ set(cory_litert_lm_enabled 0)
 
 option(GENERATE_PROFILES "PGO: -fprofile-generate" OFF)
 
-# --- Main JNI library (Python embed, libgit2, Rust FFI) ---
+# ---------- Python shell wrapper (PIE executable for usr/bin/python3) ----------
+# Named libpython3.so so Android extracts it to the native lib directory.
+# TerminalBootstrap symlinks it as usr/bin/python3.
+add_executable(python3 "${CMAKE_CURRENT_SOURCE_DIR}/python.c")
+target_link_libraries(python3 cory_python_runtime android log)
+set_target_properties(python3 PROPERTIES
+    OUTPUT_NAME "python3"
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
+# ---------- Main JNI library (Python embed, libgit2, Rust FFI) ----------
 add_library(cory SHARED cory_python_module.cpp cory_jni.cpp)
 
 target_compile_features(cory PRIVATE cxx_std_23)

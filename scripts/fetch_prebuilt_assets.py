@@ -22,6 +22,7 @@ ASSET_ARCHIVES = {
     "busybox": "busybox-arm64-v8a.tgz",
     "ripgrep": "ripgrep-arm64-v8a.tgz",
     "rust": "rust-cory_rust-arm64-debug.tgz",
+    "shell-deps": "shell-deps-arm64-v8a.tgz",
 }
 
 ASSET_TARGETS = {
@@ -30,6 +31,7 @@ ASSET_TARGETS = {
     "busybox": Path("third_party/ndk-busybox-ref/libs"),
     "ripgrep": Path("third_party/ripgrep/target/aarch64-linux-android"),
     "rust": Path("rust/cory_rust/target/aarch64-linux-android"),
+    "shell-deps": Path("third_party/shell-deps"),
 }
 
 DEFAULT_REGION = "eu-central-1"

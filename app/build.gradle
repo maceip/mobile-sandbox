@@ -35,12 +35,15 @@ def coryRebuildRust = coryBooleanProp('coryRebuildRust', false)
 def coryPythonLauncher = file("$rootDir/scripts/python.ps1")
 def coryFetchPrebuiltScript = file("$rootDir/scripts/fetch_prebuilt_assets.py")
 
+def coryShellDepsDir = file("$rootDir/third_party/shell-deps")
+
 def coryMissingVendoredAssets = {
     return !coryPythonPrefixDir.exists()
             || !coryNodeBinary.exists()
             || !coryNodeStaticLib.exists()
             || !coryRipgrepBinary.exists()
             || !coryRustStaticLib.exists()
+            || !coryShellDepsDir.exists()
 }
 
 android {
@@ -158,6 +161,7 @@ tasks.register('verifyVendoredAssets') {
                 coryNodeStaticLib,
                 coryRipgrepBinary,
                 coryRustStaticLib,
+                coryShellDepsDir,
         ].findAll { !it.exists() }
         if (!missing.isEmpty()) {
             throw new GradleException(
@@ -283,16 +287,26 @@ tasks.named('preparePythonAssets').configure {
     dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'fetchNpmTarball')
 }
 
-tasks.register('preparePythonJniLibs', Copy) {
+// Unified jniLibs task: collects ALL native deps into the generated jniLibs dir.
+// Android extracts every lib*.so from the APK's lib/ directory into nativeLibDir
+// at install time. TerminalBootstrap then symlinks them into usr/bin/.
+tasks.register('prepareNativeLibs', Copy) {
     into(coryGeneratedPythonJniLibsDir)
 
+    // Python runtime (.so)
     into("${coryPythonAbi}") {
         from("${coryPythonPrefixDir}/lib")
         include('libpython*.*.so')
         include('lib*_python.so')
     }
+
+    // Shell deps from S3: libbash.so, libbusybox.so
+    into("${coryPythonAbi}") {
+        from("${coryShellDepsDir}/${coryPythonAbi}")
+        include('*.so')
+    }
 }
 
 tasks.named('preBuild').configure {
-    dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'buildRustArm64', 'preparePythonAssets', 'preparePythonJniLibs')
+    dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'buildRustArm64', 'preparePythonAssets', 'prepareNativeLibs')
 }
