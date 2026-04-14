@@ -70,16 +70,6 @@ object TerminalBootstrap {
             createBusyboxSymlinks(busyboxPath, binDir)
         }
 
-        // ---- git (PIE-as-.so built by CMake from libgit2 examples) ----
-        // Non-critical: if missing, the shell still works, user just sees
-        // a banner listing `git` as unavailable.
-        val gitPath = linkNativeBinary(nativeLibDir, binDir, "libgit_cli.so", "git")
-        if (gitPath == null) {
-            val msg = "libgit_cli.so missing from nativeLibDir=$nativeLibDir"
-            Log.w(TAG, msg)
-            errors += msg
-        }
-
         // ---- Shell config ----
         writeBashrc(homeDir, prefixDir, binDir)
         writeProfile(homeDir, binDir)

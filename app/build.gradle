@@ -70,7 +70,7 @@ android {
                     '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON',
                     '-DCORY_ENABLE_LITERT_LM=OFF',
                     "-DCORY_ENABLE_NODE_EMBED=${coryEnableNodeEmbed ? 'ON' : 'OFF'}",
-                    "-DCORY_GENERATED_JNILIBS_DIR=${coryGeneratedPythonJniLibsDir}"
+                    "-DCORY_ASSETS_DIR=${coryGeneratedPythonAssetsDir}"
                 )
             }
         }
@@ -247,11 +247,10 @@ tasks.register('preparePythonAssets', Copy) {
         }
     }
 
-    // Note: git is NOT in this asset dir. It ships as libgit_cli.so through
-    // the jniLibs channel — CMake writes it directly into
-    // coryGeneratedPythonJniLibsDir/arm64-v8a/ and AGP's mergeDebugJniLibs
-    // picks it up naturally after externalNativeBuildDebug runs.
-    // TerminalBootstrap symlinks libgit_cli.so -> usr/bin/git at runtime.
+    // git is not listed here — CMake writes it directly into
+    // ${coryGeneratedPythonAssetsDir}/python/bin/git during the
+    // externalNativeBuild phase, and the afterEvaluate block below
+    // forces mergeDebugAssets to wait for CMake so it's picked up.
 
     doLast {
         mkdir("${coryGeneratedPythonAssetsDir}/python/cwd")
@@ -316,4 +315,29 @@ tasks.register('prepareNativeLibs', Copy) {
 
 tasks.named('preBuild').configure {
     dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'buildRustArm64', 'preparePythonAssets', 'prepareNativeLibs')
+}
+
+// CMake writes the `git` binary directly into
+// ${coryGeneratedPythonAssetsDir}/python/bin/git via its RUNTIME_OUTPUT_DIRECTORY
+// + OUTPUT_NAME target properties (see app/src/main/cpp/CMakeLists.txt).
+//
+// That dir is already registered as `sourceSets.main.assets.srcDir`, so
+// mergeAssets would scan it naturally. BUT: AGP does NOT automatically
+// make mergeAssets depend on the native build (assets and native libs
+// are independent in AGP's model), so mergeAssets can race ahead of
+// CMake and package an empty bin/ dir. Force the dependency here so
+// mergeDebugAssets / mergeReleaseAssets run *after* all CMake build
+// tasks for every configured ABI.
+//
+// Task names in AGP 8 use `buildCMake<Variant>[<abi>]` (e.g.
+// `buildCMakeDebug[arm64-v8a]`). `tasks.matching` with `configureEach`
+// is a live filter and will fire for these even though they are
+// registered late in the configuration phase.
+afterEvaluate {
+    def cmakeBuildTasks = tasks.matching { it.name.startsWith('buildCMake') }
+    tasks.matching { it.name == 'mergeDebugAssets' || it.name == 'mergeReleaseAssets' }.configureEach { mergeTask ->
+        cmakeBuildTasks.configureEach { cmakeTask ->
+            mergeTask.dependsOn(cmakeTask)
+        }
+    }
 }

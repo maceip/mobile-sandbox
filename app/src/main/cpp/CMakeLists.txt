@@ -188,16 +188,23 @@ endif()
 
 # ---------- git CLI (PIE executable built from libgit2's examples/) ----------
 # libgit2 ships an `lg2` dispatcher binary in examples/ that implements a
-# git-like CLI with 26+ subcommands (clone, init, commit, log, status,
-# checkout, fetch, merge, push, diff, blame, etc.) using the libgit2 C API.
-# We compile those sources as `libgit_cli.so` so the terminal has a working
-# git binary that shares libgit2 + OpenSSL with the rest of the app.
+# git-like CLI using the libgit2 C API. We compile those sources plus our
+# own worktree.c (libgit2's examples never shipped worktree support) as a
+# real `git` binary that shares libgit2 + OpenSSL with the rest of the app.
 #
-# Packaging channel: PIE-as-.so through jniLibs (same as libbash.so /
-# libbusybox.so). We write the output directly into the generated jniLibs
-# source dir that AGP's `mergeDebugJniLibs` scans — no separate Gradle
-# copy task needed. TerminalBootstrap symlinks it to usr/bin/git at runtime.
+# Commands available: add, blame, cat-file, checkout, clone, commit, config,
+# describe, diff, fetch, for-each-ref, general, index-pack, init, log,
+# ls-files, ls-remote, merge, push, remote, rev-list, rev-parse, show-index,
+# stash, status, tag, worktree.
+#
+# Output: CMake writes the binary directly as `git` into the generated
+# assets source dir (CORY_ASSETS_DIR/python/bin/git). That dir is registered
+# in app/build.gradle as `sourceSets.main.assets.srcDir`, so AGP's
+# mergeAssets task picks the file up at merge time — *provided* mergeAssets
+# is forced to run after CMake (see the afterEvaluate block in build.gradle
+# that wires mergeDebugAssets → buildCMake*).
 set(libgit2_examples_dir "${libgit2_src}/examples")
+set(cory_git_extras_dir "${CMAKE_CURRENT_SOURCE_DIR}/git_extras")
 set(libgit2_example_sources
     ${libgit2_examples_dir}/add.c
     ${libgit2_examples_dir}/args.c
@@ -228,30 +235,30 @@ set(libgit2_example_sources
     ${libgit2_examples_dir}/stash.c
     ${libgit2_examples_dir}/status.c
     ${libgit2_examples_dir}/tag.c
+    ${cory_git_extras_dir}/worktree.c
 )
 
-add_executable(git_cli ${libgit2_example_sources})
-target_include_directories(git_cli PRIVATE "${libgit2_examples_dir}")
-target_compile_options(git_cli PRIVATE
+add_executable(git ${libgit2_example_sources})
+target_include_directories(git PRIVATE "${libgit2_examples_dir}" "${cory_git_extras_dir}")
+target_compile_options(git PRIVATE
     -Wall
     -Wno-unused-parameter
     -Wno-unused-variable
     -Wno-unused-function
     -Wno-sign-compare
 )
-target_link_libraries(git_cli PRIVATE cory_libgit2)
+target_link_libraries(git PRIVATE cory_libgit2)
 
-# Output the executable directly into the generated jniLibs source dir
-# that AGP scans at merge time, named so PackageManager extracts it into
-# nativeLibraryDir at install (same pattern as libbash.so / libbusybox.so).
-# CORY_GENERATED_JNILIBS_DIR is passed from app/build.gradle via -D.
-if(NOT DEFINED CORY_GENERATED_JNILIBS_DIR)
-    set(CORY_GENERATED_JNILIBS_DIR "${cory_root}/app/build/generated/cory/python-jniLibs")
+# Output the executable directly into the generated assets source dir
+# under python/bin/git. CORY_ASSETS_DIR is passed from app/build.gradle
+# via -D (defaulting to the same absolute path if not supplied).
+if(NOT DEFINED CORY_ASSETS_DIR)
+    set(CORY_ASSETS_DIR "${cory_root}/app/build/generated/cory/python-assets")
 endif()
-set(cory_git_jni_dir "${CORY_GENERATED_JNILIBS_DIR}/${ANDROID_ABI}")
-set_target_properties(git_cli PROPERTIES
+set(cory_git_assets_bin_dir "${CORY_ASSETS_DIR}/python/bin")
+set_target_properties(git PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     LINK_FLAGS "-pie"
-    RUNTIME_OUTPUT_DIRECTORY "${cory_git_jni_dir}"
-    OUTPUT_NAME "libgit_cli.so"
+    RUNTIME_OUTPUT_DIRECTORY "${cory_git_assets_bin_dir}"
+    OUTPUT_NAME "git"
 )

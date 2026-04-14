@@ -3,6 +3,9 @@
 /* This part is not strictly libgit2-dependent, but you can use this
  * as a starting point for a git-like tool */
 
+/* Cory extra: worktree.c (see app/src/main/cpp/git_extras/worktree.c) */
+extern int lg2_worktree(git_repository *repo, int argc, char **argv);
+
 typedef int (*git_command_fn)(git_repository *, int , char **);
 
 struct {
@@ -36,6 +39,7 @@ struct {
 	{ "stash",        lg2_stash,        1 },
 	{ "status",       lg2_status,       1 },
 	{ "tag",          lg2_tag,          1 },
+	{ "worktree",     lg2_worktree,     1 },
 };
 
 static int run_command(git_command_fn fn, git_repository *repo, struct args_info args)

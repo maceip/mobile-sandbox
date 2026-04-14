@@ -75,24 +75,31 @@ the `.so` lie occasionally confuses tooling).
 
 ### `git` — built in-tree from libgit2 examples
 
-`git` is not cross-compiled from upstream git.git. Instead, `app/src/main/cpp/CMakeLists.txt`
-defines an `add_executable(git_cli ...)` target compiled from the 29 files in
-`third_party/libgit2/examples/` (upstream's `lg2` dispatcher + one `.c` per
-subcommand: clone, init, commit, log, status, checkout, fetch, merge, push,
-diff, blame, stash, tag, etc).
+`git` is not cross-compiled from upstream git.git. Instead,
+`app/src/main/cpp/CMakeLists.txt` defines an `add_executable(git ...)` target
+compiled from the 29 files in `third_party/libgit2/examples/` (upstream's
+`lg2` dispatcher + one `.c` per subcommand: clone, init, commit, log, status,
+checkout, fetch, merge, push, diff, blame, stash, tag, etc) **plus** our own
+`app/src/main/cpp/git_extras/worktree.c` which implements `git worktree
+list|add|remove|prune` using libgit2's `git_worktree_*` C API. libgit2's
+examples/ dir never shipped a worktree.c — that's why we added one.
 
-It's built as a PIE executable named `libgit_cli.so`, written directly into
-`app/build/generated/cory/python-jniLibs/arm64-v8a/` (passed to CMake via
-`-DCORY_GENERATED_JNILIBS_DIR=`). AGP's `mergeDebugJniLibs` picks it up
-from the `jniLibs.srcDir` registration and packages it into `lib/arm64-v8a/`
-of the APK. Same channel as `libbash.so` / `libbusybox.so`.
+It's built as a real PIE executable literally named `git`, written by CMake
+directly into `app/build/generated/cory/python-assets/python/bin/git`
+(passed via `-DCORY_ASSETS_DIR=`). That dir is already registered as a
+`sourceSets.main.assets.srcDir`, so AGP's mergeAssets packages it into
+`assets/python/bin/git`. To force `mergeDebugAssets` to run *after* the
+CMake build (it has no natural dependency on the native build phase),
+`app/build.gradle` contains an `afterEvaluate` block that makes
+`mergeDebugAssets` / `mergeReleaseAssets` depend on every task matching
+`buildCMake*` (AGP 8's per-ABI CMake build tasks).
 
 TLS: libgit2 is built with `USE_HTTPS=ON` pointing at OpenSSL's `libssl.a`
 and `libcrypto.a` that ship inside `third_party/python-android/prefix/lib/`
 (CPython's Android build bundles them). No second TLS stack needed.
 
-At runtime `TerminalBootstrap` symlinks `libgit_cli.so` from `nativeLibraryDir`
-to `usr/bin/git`.
+At runtime `CoryTerminalRuntime` symlinks `filesDir/python/bin/git` to
+`usr/bin/git` alongside node, rg, python3, python3.14.
 
 ---
 
@@ -103,8 +110,7 @@ to `usr/bin/git`.
    2. Link `libbash.so` (from nativeLibDir) → `usr/bin/bash`
    3. Link `libbusybox.so` (from nativeLibDir) → `usr/bin/busybox`
    4. Create 55 busybox applet symlinks (awk, cat, grep, ls, etc.)
-   5. Link `libgit_cli.so` (from nativeLibDir) → `usr/bin/git`
-   6. Write `.bashrc` and `.profile`
+   5. Write `.bashrc` and `.profile`
 2. **`CoryTerminalRuntime.syncBundledRuntime()`**
    1. Extract `assets/python/` tree to `filesDir/python/` (first launch only, checked by version stamp)
 3. **`CoryTerminalRuntime.linkBundledTools()`**
@@ -131,7 +137,7 @@ usr/bin/
 ├── pip3              (shell wrapper → pip)
 ├── npm               (shell wrapper → node + npm-cli.js)
 ├── npx               (shell wrapper → node + npx-cli.js)
-└── git               ❌ NOT YET — needs cross-compiled binary
+└── git               (CMake-built from libgit2 examples + our worktree.c)
 ```
 
 ---

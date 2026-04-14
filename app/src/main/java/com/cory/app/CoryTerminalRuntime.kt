@@ -10,9 +10,9 @@ import java.io.FileOutputStream
 /**
  * Host-app extension of [TerminalBootstrap].
  *
- * [TerminalBootstrap] handles the core shell (bash + busybox + git). This
- * class handles extension tools that come from the app's assets: python3,
- * node, ripgrep, plus the generated shell wrappers for pip, npm, npx.
+ * [TerminalBootstrap] handles the core shell (bash + busybox). This class
+ * handles extension tools that come from the app's assets: python3, node,
+ * ripgrep, git, plus the generated shell wrappers for pip, npm, npx.
  *
  * Runs after TerminalBootstrap on every app launch. Idempotent.
  */
@@ -26,15 +26,18 @@ object CoryTerminalRuntime {
      * to the bootstrap status file so the user sees the problem on their
      * first shell, instead of hitting "command not found" later.
      *
-     * Note: `git` is NOT in this list. It ships as libgit_cli.so through
-     * the jniLibs channel (see CMakeLists.txt and TerminalBootstrap.kt).
+     * `git` is built by CMake from libgit2's examples + our worktree.c
+     * and written directly into the generated assets dir under
+     * python/bin/git (see app/src/main/cpp/CMakeLists.txt and
+     * app/build.gradle's mergeDebugAssets -> buildCMake* wiring).
      */
     private val ASSET_TOOL_BINARIES = listOf(
         "node",
         "rg",
         "busybox",
         "python3",
-        "python3.14"
+        "python3.14",
+        "git"
     )
 
     fun ensureReady(context: Context) {
@@ -98,7 +101,7 @@ object CoryTerminalRuntime {
         val missingTools = mutableListOf<String>()
 
         if (!bundledBin.exists()) {
-            Log.e(TAG, "CRITICAL: $bundledBin does not exist — python/node/rg all missing")
+            Log.e(TAG, "CRITICAL: $bundledBin does not exist — python/node/rg/git all missing")
             missingTools += ASSET_TOOL_BINARIES
         } else {
             for (tool in ASSET_TOOL_BINARIES) {
