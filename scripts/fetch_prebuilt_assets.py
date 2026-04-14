@@ -16,6 +16,7 @@ class FetchError(RuntimeError):
     pass
 
 
+# Required assets — build fails if these cannot be fetched.
 ASSET_ARCHIVES = {
     "node": "node24-android.tgz",
     "python": "python-android-prefix.tgz",
@@ -32,6 +33,18 @@ ASSET_TARGETS = {
     "ripgrep": Path("third_party/ripgrep/target/aarch64-linux-android"),
     "rust": Path("rust/cory_rust/target/aarch64-linux-android"),
     "shell-deps": Path("third_party/shell-deps"),
+}
+
+# Optional assets — skipped with a warning if the archive is missing from
+# S3. Used for binaries that don't have a producer yet but are wired into
+# the build pipeline so they'll be automatically picked up as soon as
+# someone uploads the archive.
+OPTIONAL_ASSET_ARCHIVES = {
+    "git": "git-android.tgz",
+}
+
+OPTIONAL_ASSET_TARGETS = {
+    "git": Path("third_party/git-android"),
 }
 
 DEFAULT_REGION = "eu-central-1"
@@ -52,12 +65,21 @@ def public_asset_url(*, bucket: str, prefix: str, region: str, archive_name: str
     return f"https://{bucket}.s3.{region}.amazonaws.com/{clean_prefix}/{archive_name}"
 
 
-def download(url: str, destination: Path) -> None:
+def download(url: str, destination: Path, *, optional: bool = False) -> bool:
+    """Downloads URL to destination.
+
+    Returns True on success, False if optional and 404'd.
+    Raises FetchError on any other failure.
+    """
     log(f"download: {url}")
     try:
         with urllib.request.urlopen(url) as response, destination.open("wb") as output:
             shutil.copyfileobj(response, output)
+        return True
     except urllib.error.HTTPError as exc:
+        if optional and exc.code in (403, 404):
+            log(f"optional asset not found (HTTP {exc.code}), skipping: {url}")
+            return False
         raise FetchError(f"download failed ({exc.code}): {url}") from exc
     except urllib.error.URLError as exc:
         raise FetchError(f"download failed: {url}: {exc.reason}") from exc
@@ -73,6 +95,7 @@ def safe_extract(archive_path: Path, destination: Path) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    all_names = sorted([*ASSET_ARCHIVES.keys(), *OPTIONAL_ASSET_ARCHIVES.keys(), "all"])
     parser = argparse.ArgumentParser(
         description="Restore Cory prebuilt Android payloads from the public S3 bucket."
     )
@@ -96,34 +119,66 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--assets",
         nargs="+",
-        choices=sorted([*ASSET_ARCHIVES.keys(), "all"]),
+        choices=all_names,
         default=["all"],
         help="Asset archives to restore",
     )
     return parser.parse_args()
 
 
+def fetch_asset(
+    *, name: str, archive_name: str, target: Path, args: argparse.Namespace,
+    temp_root: Path, root: Path, optional: bool
+) -> None:
+    archive_path = temp_root / archive_name
+    url = public_asset_url(
+        bucket=args.bucket,
+        prefix=args.prefix,
+        region=args.region,
+        archive_name=archive_name,
+    )
+    if not download(url, archive_path, optional=optional):
+        return  # optional 404, already logged
+    destination = root / target
+    destination.mkdir(parents=True, exist_ok=True)
+    safe_extract(archive_path, destination)
+    log(f"restored {name} from {url}")
+
+
 def main() -> int:
     args = parse_args()
     root = repo_root()
-    names = list(ASSET_ARCHIVES) if "all" in args.assets else args.assets
+
+    requested = args.assets
+    if "all" in requested:
+        required_names = list(ASSET_ARCHIVES)
+        optional_names = list(OPTIONAL_ASSET_ARCHIVES)
+    else:
+        required_names = [n for n in requested if n in ASSET_ARCHIVES]
+        optional_names = [n for n in requested if n in OPTIONAL_ASSET_ARCHIVES]
 
     with tempfile.TemporaryDirectory(prefix="cory-prebuilt-assets-") as temp_dir:
         temp_root = Path(temp_dir)
-        for name in names:
-            archive_name = ASSET_ARCHIVES[name]
-            archive_path = temp_root / archive_name
-            url = public_asset_url(
-                bucket=args.bucket,
-                prefix=args.prefix,
-                region=args.region,
-                archive_name=archive_name,
+        for name in required_names:
+            fetch_asset(
+                name=name,
+                archive_name=ASSET_ARCHIVES[name],
+                target=ASSET_TARGETS[name],
+                args=args,
+                temp_root=temp_root,
+                root=root,
+                optional=False,
             )
-            download(url, archive_path)
-            destination = root / ASSET_TARGETS[name]
-            destination.mkdir(parents=True, exist_ok=True)
-            safe_extract(archive_path, destination)
-            log(f"restored {name} from {url}")
+        for name in optional_names:
+            fetch_asset(
+                name=name,
+                archive_name=OPTIONAL_ASSET_ARCHIVES[name],
+                target=OPTIONAL_ASSET_TARGETS[name],
+                args=args,
+                temp_root=temp_root,
+                root=root,
+                optional=True,
+            )
 
     return 0
 

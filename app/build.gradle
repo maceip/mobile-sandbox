@@ -24,6 +24,7 @@ def coryBusyboxDir = file("$rootDir/third_party/ndk-busybox-ref")
 def coryBusyboxBinary = file("$coryBusyboxDir/libs/${coryPythonAbi}/busybox")
 def coryPythonBinary = file("$coryPythonPrefixDir/bin/python3")
 def coryPythonVersionedBinary = file("$coryPythonPrefixDir/bin/python3.14")
+def coryGitBinary = file("$rootDir/third_party/git-android/bin/${coryPythonAbi}/git")
 def coryGeneratedPythonAssetsDir = file("$buildDir/generated/cory/python-assets")
 def coryGeneratedPythonJniLibsDir = file("$buildDir/generated/cory/python-jniLibs")
 def coryRustProjectDir = file("$rootDir/rust/cory_rust")
@@ -243,6 +244,16 @@ tasks.register('preparePythonAssets', Copy) {
     if (coryPythonVersionedBinary.exists()) {
         into("python/bin") {
             from(coryPythonVersionedBinary)
+        }
+    }
+
+    // git is an optional binary — when its cross-compiled version exists
+    // at third_party/git-android/bin/arm64-v8a/git it gets bundled here.
+    // Until that binary is produced, the build succeeds and the shell's
+    // bootstrap status file will list "git" as missing on first launch.
+    if (coryGitBinary.exists()) {
+        into("python/bin") {
+            from(coryGitBinary)
         }
     }
 

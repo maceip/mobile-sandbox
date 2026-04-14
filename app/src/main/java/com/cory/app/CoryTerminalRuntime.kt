@@ -7,9 +7,33 @@ import com.ai.assistance.operit.terminal.TerminalBootstrap
 import java.io.File
 import java.io.FileOutputStream
 
+/**
+ * Host-app extension of [TerminalBootstrap].
+ *
+ * [TerminalBootstrap] handles the core shell (bash + busybox). This class
+ * handles extension tools that come from the app's assets: python3, node,
+ * ripgrep, git, plus the generated shell wrappers for pip, npm, npx.
+ *
+ * Runs after TerminalBootstrap on every app launch. Idempotent.
+ */
 object CoryTerminalRuntime {
     private const val TAG = "CoryTerminalRuntime"
     private const val RUNTIME_LAYOUT_VERSION = 1
+
+    /**
+     * Tool binaries we expect to find in `filesDir/python/bin/` after
+     * asset extraction. Each is optional — missing binaries are logged
+     * to the bootstrap status file so the user sees the problem on their
+     * first shell, instead of hitting "command not found" later.
+     */
+    private val ASSET_TOOL_BINARIES = listOf(
+        "node",
+        "rg",
+        "busybox",
+        "python3",
+        "python3.14",
+        "git"
+    )
 
     fun ensureReady(context: Context) {
         TerminalBootstrap.ensureEnvironment(context)
@@ -64,27 +88,52 @@ object CoryTerminalRuntime {
         val bundledBin = File(runtimeRoot, "bin")
         val bundledLib = File(runtimeRoot, "lib")
         val usrBin = File(filesDir, "usr/bin")
-        if (!bundledBin.exists()) {
-            return
-        }
+        val homeDir = File(filesDir, "home")
         if (!usrBin.exists()) {
             usrBin.mkdirs()
         }
-        val tools = listOf("node", "rg", "busybox", "python3", "python3.14")
-        for (tool in tools) {
-            val source = File(bundledBin, tool)
-            if (!source.exists()) {
-                continue
+
+        val missingTools = mutableListOf<String>()
+
+        if (!bundledBin.exists()) {
+            Log.e(TAG, "CRITICAL: $bundledBin does not exist — python/node/rg/git all missing")
+            missingTools += ASSET_TOOL_BINARIES
+        } else {
+            for (tool in ASSET_TOOL_BINARIES) {
+                val source = File(bundledBin, tool)
+                if (!source.exists()) {
+                    Log.w(TAG, "asset binary missing: $tool")
+                    missingTools += tool
+                    continue
+                }
+                val target = File(usrBin, tool)
+                symlinkOrCopy(source, target)
             }
-            val target = File(usrBin, tool)
-            symlinkOrCopy(source, target)
+
+            // Create `python` alias if python3 landed
+            val python3 = File(usrBin, "python3")
+            if (python3.exists()) {
+                symlinkOrCopy(python3, File(usrBin, "python"))
+            }
         }
+
+        // Shell wrappers for pip and npm (these are cheap to rewrite every launch)
+        writePipWrappers(usrBin)
+        writeNpmWrappers(usrBin, bundledLib)
+
+        // Append missing-tool warnings to the bootstrap status file so the
+        // user sees them when their shell starts. TerminalBootstrap may
+        // have already written errors for bash/busybox — we append.
+        appendMissingToolWarnings(homeDir, missingTools)
+    }
+
+    private fun writePipWrappers(usrBin: File) {
         val python3 = File(usrBin, "python3")
-        if (python3.exists()) {
-            symlinkOrCopy(python3, File(usrBin, "python"))
-        }
+        if (!python3.exists()) return  // pip is useless without python3
+
+        val pip = File(usrBin, "pip")
         writeShellWrapper(
-            File(usrBin, "pip"),
+            pip,
             """
             |#!/system/bin/sh
             |PYTHON_BIN="${python3.absolutePath}"
@@ -98,14 +147,19 @@ object CoryTerminalRuntime {
             File(usrBin, "pip3"),
             """
             |#!/system/bin/sh
-            |exec "${File(usrBin, "pip").absolutePath}" "${'$'}@"
+            |exec "${pip.absolutePath}" "${'$'}@"
             """.trimMargin()
         )
+    }
 
+    private fun writeNpmWrappers(usrBin: File, bundledLib: File) {
         val node = File(usrBin, "node")
+        if (!node.exists()) return
+
         val npmCli = File(bundledLib, "node_modules/npm/bin/npm-cli.js")
         val npxCli = File(bundledLib, "node_modules/npm/bin/npx-cli.js")
-        if (node.exists() && npmCli.exists()) {
+
+        if (npmCli.exists()) {
             writeShellWrapper(
                 File(usrBin, "npm"),
                 """
@@ -114,7 +168,7 @@ object CoryTerminalRuntime {
                 """.trimMargin()
             )
         }
-        if (node.exists() && npxCli.exists()) {
+        if (npxCli.exists()) {
             writeShellWrapper(
                 File(usrBin, "npx"),
                 """
@@ -122,6 +176,30 @@ object CoryTerminalRuntime {
                 |exec "${node.absolutePath}" "${npxCli.absolutePath}" "${'$'}@"
                 """.trimMargin()
             )
+        }
+    }
+
+    /**
+     * Append asset-tool errors to the bootstrap status banner that
+     * TerminalBootstrap wrote earlier. The user sees this on login.
+     */
+    private fun appendMissingToolWarnings(homeDir: File, missing: List<String>) {
+        if (missing.isEmpty()) return
+        val statusFile = File(homeDir, ".cory-bootstrap-status")
+        val header = if (statusFile.exists()) "" else
+            "\u001B[1;31m[cory bootstrap]\u001B[0m missing tool binaries:\n"
+        val body = buildString {
+            if (header.isNotEmpty()) append(header)
+            else append("\u001B[33mmissing tool binaries:\u001B[0m\n")
+            for (t in missing) {
+                append("  \u001B[33m!\u001B[0m $t\n")
+            }
+            append("\n")
+        }
+        if (statusFile.exists()) {
+            statusFile.appendText(body)
+        } else {
+            statusFile.writeText(body)
         }
     }
 
