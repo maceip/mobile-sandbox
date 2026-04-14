@@ -325,19 +325,14 @@ tasks.named('preBuild').configure {
 // mergeAssets would scan it naturally. BUT: AGP does NOT automatically
 // make mergeAssets depend on the native build (assets and native libs
 // are independent in AGP's model), so mergeAssets can race ahead of
-// CMake and package an empty bin/ dir. Force the dependency here so
-// mergeDebugAssets / mergeReleaseAssets run *after* all CMake build
-// tasks for every configured ABI.
+// CMake and package an empty bin/ dir.
 //
-// Task names in AGP 8 use `buildCMake<Variant>[<abi>]` (e.g.
-// `buildCMakeDebug[arm64-v8a]`). `tasks.matching` with `configureEach`
-// is a live filter and will fire for these even though they are
-// registered late in the configuration phase.
-afterEvaluate {
-    def cmakeBuildTasks = tasks.matching { it.name.startsWith('buildCMake') }
-    tasks.matching { it.name == 'mergeDebugAssets' || it.name == 'mergeReleaseAssets' }.configureEach { mergeTask ->
-        cmakeBuildTasks.configureEach { cmakeTask ->
-            mergeTask.dependsOn(cmakeTask)
-        }
-    }
+// Fix: make mergeDebugAssets / mergeReleaseAssets depend on the lazy
+// collection of every `buildCMake*` task. `tasks.matching` returns a
+// live `TaskCollection` that Gradle resolves at graph-construction time,
+// by which point AGP has registered its per-ABI CMake tasks
+// (`buildCMakeDebug[arm64-v8a]` etc). `dependsOn(TaskCollection)` is
+// the documented lazy pattern — no nested `configureEach` needed.
+tasks.matching { it.name == 'mergeDebugAssets' || it.name == 'mergeReleaseAssets' }.configureEach {
+    dependsOn(tasks.matching { it.name.startsWith('buildCMake') })
 }

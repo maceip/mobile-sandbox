@@ -238,16 +238,20 @@ set(libgit2_example_sources
     ${cory_git_extras_dir}/worktree.c
 )
 
-add_executable(git ${libgit2_example_sources})
-target_include_directories(git PRIVATE "${libgit2_examples_dir}" "${cory_git_extras_dir}")
-target_compile_options(git PRIVATE
+# CMake target name is `git_cli` (not `git`) to avoid any risk of
+# collision with internal targets from the libgit2 subdirectory or from
+# Android's NDK CMake wrapper. The on-disk filename is set by OUTPUT_NAME
+# below and ends up as the literal `git` in the assets dir.
+add_executable(git_cli ${libgit2_example_sources})
+target_include_directories(git_cli PRIVATE "${libgit2_examples_dir}" "${cory_git_extras_dir}")
+target_compile_options(git_cli PRIVATE
     -Wall
     -Wno-unused-parameter
     -Wno-unused-variable
     -Wno-unused-function
     -Wno-sign-compare
 )
-target_link_libraries(git PRIVATE cory_libgit2)
+target_link_libraries(git_cli PRIVATE cory_libgit2)
 
 # Output the executable directly into the generated assets source dir
 # under python/bin/git. CORY_ASSETS_DIR is passed from app/build.gradle
@@ -256,7 +260,7 @@ if(NOT DEFINED CORY_ASSETS_DIR)
     set(CORY_ASSETS_DIR "${cory_root}/app/build/generated/cory/python-assets")
 endif()
 set(cory_git_assets_bin_dir "${CORY_ASSETS_DIR}/python/bin")
-set_target_properties(git PROPERTIES
+set_target_properties(git_cli PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     LINK_FLAGS "-pie"
     RUNTIME_OUTPUT_DIRECTORY "${cory_git_assets_bin_dir}"
