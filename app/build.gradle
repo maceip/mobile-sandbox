@@ -24,9 +24,6 @@ def coryBusyboxDir = file("$rootDir/third_party/ndk-busybox-ref")
 def coryBusyboxBinary = file("$coryBusyboxDir/libs/${coryPythonAbi}/busybox")
 def coryPythonBinary = file("$coryPythonPrefixDir/bin/python3")
 def coryPythonVersionedBinary = file("$coryPythonPrefixDir/bin/python3.14")
-// git is built by CMake from libgit2's examples/ and dropped here by
-// a POST_BUILD custom command (see app/src/main/cpp/CMakeLists.txt).
-def coryGitBinary = file("$buildDir/generated/cory/cmake-binaries/${coryPythonAbi}/git")
 def coryGeneratedPythonAssetsDir = file("$buildDir/generated/cory/python-assets")
 def coryGeneratedPythonJniLibsDir = file("$buildDir/generated/cory/python-jniLibs")
 def coryRustProjectDir = file("$rootDir/rust/cory_rust")
@@ -72,7 +69,8 @@ android {
                     '-DANDROID_STL=c++_shared',
                     '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON',
                     '-DCORY_ENABLE_LITERT_LM=OFF',
-                    "-DCORY_ENABLE_NODE_EMBED=${coryEnableNodeEmbed ? 'ON' : 'OFF'}"
+                    "-DCORY_ENABLE_NODE_EMBED=${coryEnableNodeEmbed ? 'ON' : 'OFF'}",
+                    "-DCORY_GENERATED_JNILIBS_DIR=${coryGeneratedPythonJniLibsDir}"
                 )
             }
         }
@@ -249,30 +247,14 @@ tasks.register('preparePythonAssets', Copy) {
         }
     }
 
-    // git is built by the externalNativeBuild (CMake) from libgit2's
-    // examples/ sources. It lands in $buildDir/generated/cory/cmake-binaries
-    // after CMake runs. `copyGitIntoAssets` below picks it up after CMake
-    // and copies it into this assets dir — we can't do it here because
-    // preparePythonAssets runs before externalNativeBuild.
+    // Note: git is NOT in this asset dir. It ships as libgit_cli.so through
+    // the jniLibs channel — CMake writes it directly into
+    // coryGeneratedPythonJniLibsDir/arm64-v8a/ and AGP's mergeDebugJniLibs
+    // picks it up naturally after externalNativeBuildDebug runs.
+    // TerminalBootstrap symlinks libgit_cli.so -> usr/bin/git at runtime.
 
     doLast {
         mkdir("${coryGeneratedPythonAssetsDir}/python/cwd")
-    }
-}
-
-// Runs after the CMake build, copies the compiled git binary into the
-// generated assets dir so it ships in the APK. Android's mergeDebugAssets
-// task will then include it when packaging.
-tasks.register('copyGitIntoAssets', Copy) {
-    onlyIf { coryGitBinary.exists() }
-    from(coryGitBinary)
-    into("${coryGeneratedPythonAssetsDir}/python/bin")
-    doLast {
-        if (coryGitBinary.exists()) {
-            logger.lifecycle("copied git binary: ${coryGitBinary} -> python/bin/git")
-        } else {
-            logger.warn("git binary not found at ${coryGitBinary} — skipped (build will still succeed, user will see 'git missing' banner on first shell)")
-        }
     }
 }
 
@@ -334,16 +316,4 @@ tasks.register('prepareNativeLibs', Copy) {
 
 tasks.named('preBuild').configure {
     dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'buildRustArm64', 'preparePythonAssets', 'prepareNativeLibs')
-}
-
-// After CMake runs (externalNativeBuildDebug / externalNativeBuildRelease),
-// the git binary exists in build/generated/cory/cmake-binaries/. Copy it
-// into the assets dir before the assets get merged into the APK.
-afterEvaluate {
-    tasks.matching { it.name.startsWith('externalNativeBuild') }.configureEach {
-        finalizedBy('copyGitIntoAssets')
-    }
-    tasks.matching { it.name.startsWith('mergeDebugAssets') || it.name.startsWith('mergeReleaseAssets') }.configureEach {
-        dependsOn('copyGitIntoAssets')
-    }
 }

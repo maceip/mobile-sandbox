@@ -70,9 +70,29 @@ the `.so` lie occasionally confuses tooling).
 
 | Binary | Target Channel | Why Missing | Action Required |
 |---|---|---|---|
-| **`git`** | A (asset binary) | No cross-compile script, no `third_party/git-android/`, no S3 bundle | Cross-compile `git` for `aarch64-linux-android` (mirror how Node was built), drop binary at `third_party/git-android/bin/arm64-v8a/git`, add `coryGitBinary` variable to `app/build.gradle`, add entry in `fetch_prebuilt_assets.py`, upload `git-android.tgz` to S3, add `"git"` to `CoryTerminalRuntime.linkBundledTools()` tool list |
 | **`rustc`** / **`cargo`** | A (asset binary) | Too large (~150MB each) to bundle | Defer — not needed for Phase 1 agent targets |
 | **`libpython_shell.so`** | B (jniLibs PIE) | We removed the CMake target | **No longer needed** — we're using the asset-channel `python3` binary from the Python prefix bundle. The `NATIVE_TOOL_BINARIES` entry for it should be removed from `TerminalBootstrap`. |
+
+### `git` — built in-tree from libgit2 examples
+
+`git` is not cross-compiled from upstream git.git. Instead, `app/src/main/cpp/CMakeLists.txt`
+defines an `add_executable(git_cli ...)` target compiled from the 29 files in
+`third_party/libgit2/examples/` (upstream's `lg2` dispatcher + one `.c` per
+subcommand: clone, init, commit, log, status, checkout, fetch, merge, push,
+diff, blame, stash, tag, etc).
+
+It's built as a PIE executable named `libgit_cli.so`, written directly into
+`app/build/generated/cory/python-jniLibs/arm64-v8a/` (passed to CMake via
+`-DCORY_GENERATED_JNILIBS_DIR=`). AGP's `mergeDebugJniLibs` picks it up
+from the `jniLibs.srcDir` registration and packages it into `lib/arm64-v8a/`
+of the APK. Same channel as `libbash.so` / `libbusybox.so`.
+
+TLS: libgit2 is built with `USE_HTTPS=ON` pointing at OpenSSL's `libssl.a`
+and `libcrypto.a` that ship inside `third_party/python-android/prefix/lib/`
+(CPython's Android build bundles them). No second TLS stack needed.
+
+At runtime `TerminalBootstrap` symlinks `libgit_cli.so` from `nativeLibraryDir`
+to `usr/bin/git`.
 
 ---
 
@@ -83,7 +103,8 @@ the `.so` lie occasionally confuses tooling).
    2. Link `libbash.so` (from nativeLibDir) → `usr/bin/bash`
    3. Link `libbusybox.so` (from nativeLibDir) → `usr/bin/busybox`
    4. Create 55 busybox applet symlinks (awk, cat, grep, ls, etc.)
-   5. Write `.bashrc` and `.profile`
+   5. Link `libgit_cli.so` (from nativeLibDir) → `usr/bin/git`
+   6. Write `.bashrc` and `.profile`
 2. **`CoryTerminalRuntime.syncBundledRuntime()`**
    1. Extract `assets/python/` tree to `filesDir/python/` (first launch only, checked by version stamp)
 3. **`CoryTerminalRuntime.linkBundledTools()`**

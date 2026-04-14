@@ -190,11 +190,13 @@ endif()
 # libgit2 ships an `lg2` dispatcher binary in examples/ that implements a
 # git-like CLI with 26+ subcommands (clone, init, commit, log, status,
 # checkout, fetch, merge, push, diff, blame, etc.) using the libgit2 C API.
-# We compile those sources as `git` so the terminal has a working git
-# binary that shares libgit2 + OpenSSL with the rest of the app.
+# We compile those sources as `libgit_cli.so` so the terminal has a working
+# git binary that shares libgit2 + OpenSSL with the rest of the app.
 #
-# Missing from upstream examples: worktree support. We add our own
-# git-cory-extras/worktree.c that implements git_worktree_* calls.
+# Packaging channel: PIE-as-.so through jniLibs (same as libbash.so /
+# libbusybox.so). We write the output directly into the generated jniLibs
+# source dir that AGP's `mergeDebugJniLibs` scans — no separate Gradle
+# copy task needed. TerminalBootstrap symlinks it to usr/bin/git at runtime.
 set(libgit2_examples_dir "${libgit2_src}/examples")
 set(libgit2_example_sources
     ${libgit2_examples_dir}/add.c
@@ -228,28 +230,28 @@ set(libgit2_example_sources
     ${libgit2_examples_dir}/tag.c
 )
 
-add_executable(git ${libgit2_example_sources})
-target_include_directories(git PRIVATE "${libgit2_examples_dir}")
-target_compile_options(git PRIVATE
+add_executable(git_cli ${libgit2_example_sources})
+target_include_directories(git_cli PRIVATE "${libgit2_examples_dir}")
+target_compile_options(git_cli PRIVATE
     -Wall
     -Wno-unused-parameter
     -Wno-unused-variable
     -Wno-unused-function
     -Wno-sign-compare
 )
-target_link_libraries(git PRIVATE cory_libgit2)
-set_target_properties(git PROPERTIES
+target_link_libraries(git_cli PRIVATE cory_libgit2)
+
+# Output the executable directly into the generated jniLibs source dir
+# that AGP scans at merge time, named so PackageManager extracts it into
+# nativeLibraryDir at install (same pattern as libbash.so / libbusybox.so).
+# CORY_GENERATED_JNILIBS_DIR is passed from app/build.gradle via -D.
+if(NOT DEFINED CORY_GENERATED_JNILIBS_DIR)
+    set(CORY_GENERATED_JNILIBS_DIR "${cory_root}/app/build/generated/cory/python-jniLibs")
+endif()
+set(cory_git_jni_dir "${CORY_GENERATED_JNILIBS_DIR}/${ANDROID_ABI}")
+set_target_properties(git_cli PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     LINK_FLAGS "-pie"
-)
-
-# Copy the built git binary into a stable location so the Gradle
-# preparePythonAssets task can bundle it into the APK's assets under
-# python/bin/git. At runtime CoryTerminalRuntime symlinks it to usr/bin/git.
-set(cory_git_output_dir "${cory_root}/app/build/generated/cory/cmake-binaries/${ANDROID_ABI}")
-add_custom_command(
-    TARGET git POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${cory_git_output_dir}"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:git>" "${cory_git_output_dir}/git"
-    COMMENT "Exporting git binary to ${cory_git_output_dir}/git"
+    RUNTIME_OUTPUT_DIRECTORY "${cory_git_jni_dir}"
+    OUTPUT_NAME "libgit_cli.so"
 )
