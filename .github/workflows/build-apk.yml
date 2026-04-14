@@ -60,7 +60,7 @@ jobs:
 
       - name: Determine next version tag
         id: version
-        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        if: success() && github.event_name == 'push'
         run: |
           LATEST_TAG=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n 1)
           if [ -z "$LATEST_TAG" ]; then
@@ -90,7 +90,7 @@ jobs:
           retention-days: 30
 
       - name: Create release with semver tag
-        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        if: success() && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
