@@ -14,18 +14,50 @@ get_filename_component(cory_node_lib_dir "${cory_node_root}/lib/${ANDROID_ABI}" 
 get_filename_component(cory_rust_root "${cory_root}/rust/cory_rust" ABSOLUTE)
 set(cory_rust_lib "${cory_rust_root}/target/aarch64-linux-android/debug/libcory_rust.a")
 
+# ---------- OpenSSL from CPython's Android prefix ----------
+# CPython's official Android build (Platforms/Android) bundles a
+# statically-linked OpenSSL that we reuse for libgit2's HTTPS transport.
+# This avoids building a second TLS stack just for git.
+set(OPENSSL_ROOT_DIR "${cory_python_prefix_dir}" CACHE PATH "OpenSSL root from CPython prefix")
+set(OPENSSL_INCLUDE_DIR "${cory_python_prefix_dir}/include" CACHE PATH "OpenSSL headers")
+set(OPENSSL_SSL_LIBRARY "${cory_python_prefix_dir}/lib/libssl.a" CACHE FILEPATH "OpenSSL libssl")
+set(OPENSSL_CRYPTO_LIBRARY "${cory_python_prefix_dir}/lib/libcrypto.a" CACHE FILEPATH "OpenSSL libcrypto")
+set(OPENSSL_USE_STATIC_LIBS ON CACHE BOOL "Use static OpenSSL from CPython prefix")
+
+# Imported OpenSSL targets so libgit2 finds everything via find_package(OpenSSL)
+if(NOT TARGET OpenSSL::Crypto)
+    add_library(OpenSSL::Crypto STATIC IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::Crypto PROPERTIES
+        IMPORTED_LOCATION "${OPENSSL_CRYPTO_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}"
+    )
+endif()
+if(NOT TARGET OpenSSL::SSL)
+    add_library(OpenSSL::SSL STATIC IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::SSL PROPERTIES
+        IMPORTED_LOCATION "${OPENSSL_SSL_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}"
+        INTERFACE_LINK_LIBRARIES "OpenSSL::Crypto"
+    )
+endif()
+
+# ---------- libgit2 build options ----------
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build libgit2 as a static library" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "Disable libgit2 tests" FORCE)
-set(BUILD_CLI OFF CACHE BOOL "Disable the libgit2 CLI" FORCE)
-set(BUILD_EXAMPLES OFF CACHE BOOL "Disable libgit2 examples" FORCE)
+set(BUILD_CLI OFF CACHE BOOL "Disable libgit2's own CLI (we build our own from examples)" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "We build examples manually below as the git CLI" FORCE)
 set(BUILD_FUZZERS OFF CACHE BOOL "Disable libgit2 fuzzers" FORCE)
 set(BUILD_BENCHMARKS OFF CACHE BOOL "Disable libgit2 benchmarks" FORCE)
 set(ENABLE_WERROR OFF CACHE BOOL "Do not fail on libgit2 warnings" FORCE)
-set(USE_HTTPS OFF CACHE STRING "Disable libgit2 HTTPS for the Android sample" FORCE)
-set(USE_SSH OFF CACHE STRING "Disable libgit2 SSH for the Android sample" FORCE)
-set(USE_SHA256 builtin CACHE STRING "Use the builtin SHA256 backend" FORCE)
+# HTTPS via the OpenSSL we just imported from CPython's Android prefix.
+# USE_HTTPS=ON means "auto-detect a TLS backend"; find_package(OpenSSL)
+# above makes libgit2 pick OpenSSL.
+set(USE_HTTPS ON CACHE STRING "libgit2 HTTPS backend" FORCE)
+set(USE_SSH OFF CACHE STRING "Disable libgit2 SSH for now" FORCE)
+set(USE_SHA256 "OpenSSL" CACHE STRING "SHA256 via OpenSSL we already link" FORCE)
 set(USE_REGEX builtin CACHE STRING "Use the builtin regex backend" FORCE)
 set(USE_COMPRESSION builtin CACHE STRING "Use bundled zlib in libgit2" FORCE)
+set(USE_BUNDLED_ZLIB ON CACHE BOOL "Use libgit2's bundled zlib" FORCE)
 
 add_subdirectory(
     "${libgit2_src}"
@@ -35,7 +67,7 @@ add_subdirectory(
 
 add_library(cory_libgit2 INTERFACE)
 target_include_directories(cory_libgit2 INTERFACE "${libgit2_src}/include")
-target_link_libraries(cory_libgit2 INTERFACE libgit2package)
+target_link_libraries(cory_libgit2 INTERFACE libgit2package OpenSSL::SSL OpenSSL::Crypto)
 
 set(CORY_PYTHON_VERSION "3.14.3" CACHE STRING "Official CPython Android package version vendored into Cory")
 
@@ -153,3 +185,71 @@ elseif(USE_PROFILE)
     target_compile_options(cory PRIVATE)
     target_link_options(cory PRIVATE -Wl,--symbol-ordering-file=${USE_PROFILE} -Wl,--no-warn-symbol-ordering)
 endif()
+
+# ---------- git CLI (PIE executable built from libgit2's examples/) ----------
+# libgit2 ships an `lg2` dispatcher binary in examples/ that implements a
+# git-like CLI with 26+ subcommands (clone, init, commit, log, status,
+# checkout, fetch, merge, push, diff, blame, etc.) using the libgit2 C API.
+# We compile those sources as `git` so the terminal has a working git
+# binary that shares libgit2 + OpenSSL with the rest of the app.
+#
+# Missing from upstream examples: worktree support. We add our own
+# git-cory-extras/worktree.c that implements git_worktree_* calls.
+set(libgit2_examples_dir "${libgit2_src}/examples")
+set(libgit2_example_sources
+    ${libgit2_examples_dir}/add.c
+    ${libgit2_examples_dir}/args.c
+    ${libgit2_examples_dir}/blame.c
+    ${libgit2_examples_dir}/cat-file.c
+    ${libgit2_examples_dir}/checkout.c
+    ${libgit2_examples_dir}/clone.c
+    ${libgit2_examples_dir}/commit.c
+    ${libgit2_examples_dir}/common.c
+    ${libgit2_examples_dir}/config.c
+    ${libgit2_examples_dir}/describe.c
+    ${libgit2_examples_dir}/diff.c
+    ${libgit2_examples_dir}/fetch.c
+    ${libgit2_examples_dir}/for-each-ref.c
+    ${libgit2_examples_dir}/general.c
+    ${libgit2_examples_dir}/index-pack.c
+    ${libgit2_examples_dir}/init.c
+    ${libgit2_examples_dir}/lg2.c
+    ${libgit2_examples_dir}/log.c
+    ${libgit2_examples_dir}/ls-files.c
+    ${libgit2_examples_dir}/ls-remote.c
+    ${libgit2_examples_dir}/merge.c
+    ${libgit2_examples_dir}/push.c
+    ${libgit2_examples_dir}/remote.c
+    ${libgit2_examples_dir}/rev-list.c
+    ${libgit2_examples_dir}/rev-parse.c
+    ${libgit2_examples_dir}/show-index.c
+    ${libgit2_examples_dir}/stash.c
+    ${libgit2_examples_dir}/status.c
+    ${libgit2_examples_dir}/tag.c
+)
+
+add_executable(git ${libgit2_example_sources})
+target_include_directories(git PRIVATE "${libgit2_examples_dir}")
+target_compile_options(git PRIVATE
+    -Wall
+    -Wno-unused-parameter
+    -Wno-unused-variable
+    -Wno-unused-function
+    -Wno-sign-compare
+)
+target_link_libraries(git PRIVATE cory_libgit2)
+set_target_properties(git PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    LINK_FLAGS "-pie"
+)
+
+# Copy the built git binary into a stable location so the Gradle
+# preparePythonAssets task can bundle it into the APK's assets under
+# python/bin/git. At runtime CoryTerminalRuntime symlinks it to usr/bin/git.
+set(cory_git_output_dir "${cory_root}/app/build/generated/cory/cmake-binaries/${ANDROID_ABI}")
+add_custom_command(
+    TARGET git POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${cory_git_output_dir}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:git>" "${cory_git_output_dir}/git"
+    COMMENT "Exporting git binary to ${cory_git_output_dir}/git"
+)
