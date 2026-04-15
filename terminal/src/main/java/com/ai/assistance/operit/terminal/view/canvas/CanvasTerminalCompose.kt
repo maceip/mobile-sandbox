@@ -1,6 +1,8 @@
 package com.ai.assistance.operit.terminal.view.canvas
 
+import android.graphics.PixelFormat
 import android.view.MotionEvent
+import android.view.ViewGroup
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
@@ -32,6 +34,27 @@ fun CanvasTerminalScreen(
     AndroidView(
         factory = { context ->
             CanvasTerminalView(context).apply {
+                // Force MATCH_PARENT layout params on the underlying
+                // SurfaceView. Compose's AndroidView is supposed to
+                // size the View from the modifier constraints, but
+                // SurfaceView's measure pass races with surface
+                // creation — without explicit LayoutParams, the View
+                // can land at 0×0 on first layout and only resolve
+                // its real size after a configuration change. The
+                // user reported "black screen until I unfolded the
+                // device" which is exactly this race.
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                // Tell the SurfaceView its surface should be opaque,
+                // not translucent. The default TRANSLUCENT format
+                // makes the surface alpha-blend with whatever's
+                // behind it, which on a freshly-created surface is
+                // black — combined with the layout race above, we
+                // get the dark void the user described.
+                holder.setFormat(PixelFormat.OPAQUE)
+
                 setConfig(config)
                 setEmulator(emulator)
                 setPty(pty)

@@ -79,7 +79,10 @@ private fun ComposeSandboxScreen() {
         }
     }
 
-    Surface(color = Color(0xFF11161C)) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color(0xFF11161C),
+    ) {
         when {
             ready -> {
                 val manager = remember { TerminalManager.getInstance(context) }

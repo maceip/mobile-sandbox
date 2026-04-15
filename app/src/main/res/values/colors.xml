@@ -1,11 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="cory_canvas">#F2EFE8</color>
-    <color name="cory_surface">#FFFDF8</color>
-    <color name="cory_surface_alt">#F4EEE2</color>
+    <!--
+      Theme bg is now the same dark navy that the Compose Surface
+      uses (Color(0xFF11161C) in ComposeSandboxActivity.kt). Before,
+      windowBackground was cream #F2EFE8 and the Compose root was
+      dark navy, so before Compose had a chance to draw, the user
+      saw a brief flash of cream behind the system bars and then
+      a dark Compose surface that didn't fill the cream area —
+      everything looked broken.
+    -->
+    <color name="cory_canvas">#11161C</color>
+    <color name="cory_surface">#11161C</color>
+    <color name="cory_surface_alt">#1A2128</color>
     <color name="cory_accent">#0B6B70</color>
-    <color name="cory_text">#1F1A14</color>
-    <color name="cory_muted">#63594C</color>
-    <color name="cory_stroke">#D4C9B8</color>
+    <color name="cory_text">#E6E1D9</color>
+    <color name="cory_muted">#9CA3AF</color>
+    <color name="cory_stroke">#2A3138</color>
     <color name="cory_white">#FFFFFFFF</color>
 </resources>
