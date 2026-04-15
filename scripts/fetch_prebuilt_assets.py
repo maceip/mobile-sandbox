@@ -26,6 +26,8 @@ ASSET_ARCHIVES = {
     "shell-deps": "shell-deps-arm64-v8a.tgz",
 }
 
+# Where each archive lands relative to the repo root (for docs / CLI help only;
+# extraction always uses the repo root because tarball members are repo-relative).
 ASSET_TARGETS = {
     "node": Path("third_party"),
     "python": Path("third_party/python-android"),
@@ -50,6 +52,9 @@ OPTIONAL_ASSET_TARGETS = {
 DEFAULT_REGION = "eu-central-1"
 DEFAULT_BUCKET = "cory-android-ci-manual-publicartifactsbucket-kmzlqxd3q1il"
 DEFAULT_PREFIX = "builds/prebuilt/latest"
+
+# Older CodeBuild uploads used this name with a debug/ tree inside the tarball.
+RUST_ARCHIVE_LEGACY = "rust-cory_rust-arm64-debug.tgz"
 
 
 def repo_root() -> Path:
@@ -86,12 +91,33 @@ def download(url: str, destination: Path, *, optional: bool = False) -> bool:
 
 
 def safe_extract(archive_path: Path, destination: Path) -> None:
+    """Extract a gzip tarball produced with `tar -C <repo-root> ...`.
+
+    Member paths are repo-relative (e.g. ``third_party/...``), so *destination*
+    must be the repository root.
+    """
     with tarfile.open(archive_path, "r:gz") as archive:
         for member in archive.getmembers():
             member_path = (destination / member.name).resolve()
             if destination.resolve() not in member_path.parents and member_path != destination.resolve():
                 raise FetchError(f"refusing to extract unsafe archive member: {member.name}")
         archive.extractall(destination)
+
+
+def ensure_rust_release_staticlib_from_debug(root: Path) -> None:
+    """Gradle links ``release/libcory_rust.a``; legacy S3 bundles only had ``debug/``."""
+    release_a = root / "rust/cory_rust/target/aarch64-linux-android/release/libcory_rust.a"
+    debug_a = root / "rust/cory_rust/target/aarch64-linux-android/debug/libcory_rust.a"
+    if release_a.is_file():
+        return
+    if not debug_a.is_file():
+        return
+    release_a.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(debug_a, release_a)
+    log(
+        "rust: copied debug/libcory_rust.a -> release/ (legacy prebuilt). "
+        f"Upload {ASSET_ARCHIVES['rust']} to S3 when available."
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -127,7 +153,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def fetch_asset(
-    *, name: str, archive_name: str, target: Path, args: argparse.Namespace,
+    *, name: str, archive_name: str, args: argparse.Namespace,
     temp_root: Path, root: Path, optional: bool
 ) -> None:
     archive_path = temp_root / archive_name
@@ -139,10 +165,36 @@ def fetch_asset(
     )
     if not download(url, archive_path, optional=optional):
         return  # optional 404, already logged
-    destination = root / target
-    destination.mkdir(parents=True, exist_ok=True)
-    safe_extract(archive_path, destination)
+    safe_extract(archive_path, root)
     log(f"restored {name} from {url}")
+
+
+def fetch_rust_prebuilt(*, args: argparse.Namespace, temp_root: Path, root: Path) -> None:
+    primary_name = ASSET_ARCHIVES["rust"]
+    archive_path = temp_root / primary_name
+    url = public_asset_url(
+        bucket=args.bucket,
+        prefix=args.prefix,
+        region=args.region,
+        archive_name=primary_name,
+    )
+    if download(url, archive_path, optional=True):
+        safe_extract(archive_path, root)
+        ensure_rust_release_staticlib_from_debug(root)
+        log(f"restored rust from {url}")
+        return
+    log(f"rust: {primary_name} not on server (404); trying {RUST_ARCHIVE_LEGACY}")
+    legacy_path = temp_root / RUST_ARCHIVE_LEGACY
+    url_legacy = public_asset_url(
+        bucket=args.bucket,
+        prefix=args.prefix,
+        region=args.region,
+        archive_name=RUST_ARCHIVE_LEGACY,
+    )
+    download(url_legacy, legacy_path, optional=False)
+    safe_extract(legacy_path, root)
+    ensure_rust_release_staticlib_from_debug(root)
+    log(f"restored rust from legacy bundle {url_legacy}")
 
 
 def main() -> int:
@@ -160,20 +212,21 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cory-prebuilt-assets-") as temp_dir:
         temp_root = Path(temp_dir)
         for name in required_names:
-            fetch_asset(
-                name=name,
-                archive_name=ASSET_ARCHIVES[name],
-                target=ASSET_TARGETS[name],
-                args=args,
-                temp_root=temp_root,
-                root=root,
-                optional=False,
-            )
+            if name == "rust":
+                fetch_rust_prebuilt(args=args, temp_root=temp_root, root=root)
+            else:
+                fetch_asset(
+                    name=name,
+                    archive_name=ASSET_ARCHIVES[name],
+                    args=args,
+                    temp_root=temp_root,
+                    root=root,
+                    optional=False,
+                )
         for name in optional_names:
             fetch_asset(
                 name=name,
                 archive_name=OPTIONAL_ASSET_ARCHIVES[name],
-                target=OPTIONAL_ASSET_TARGETS[name],
                 args=args,
                 temp_root=temp_root,
                 root=root,

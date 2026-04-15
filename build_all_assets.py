@@ -147,7 +147,7 @@ def expected_artifacts(
         artifacts["ripgrep"] = root / "third_party" / "ripgrep" / "target" / "aarch64-linux-android" / "release" / "rg"
     if expect_app:
         artifacts["busybox"] = root / "third_party" / "ndk-busybox-ref" / "libs" / "arm64-v8a" / "busybox"
-        artifacts["rust_lib"] = root / "rust" / "cory_rust" / "target" / "aarch64-linux-android" / "debug" / "libcory_rust.a"
+        artifacts["rust_lib"] = root / "rust" / "cory_rust" / "target" / "aarch64-linux-android" / "release" / "libcory_rust.a"
         artifacts["apk"] = root / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
     return artifacts
 
