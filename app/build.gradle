@@ -126,6 +126,16 @@ android {
         }
     }
 
+    // Run instrumentation tests against the RELEASE variant — the
+    // same APK we ship to users. AGP defaults to testing debug; we
+    // override so `:app:assembleReleaseAndroidTest` produces a test
+    // APK signed with the same key as the release app APK, and so
+    // the test APK runs against release-mode minification, native
+    // strip, and packaging behavior. Without this, the smoke test
+    // would exercise a debug variant that diverges from what users
+    // get in v0.0.N releases.
+    testBuildType = "release"
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -191,6 +201,17 @@ dependencies {
     implementation project(':terminal')
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
+
+    // androidTest source set — runs as an instrumentation test on a
+    // real device via Device Farm's INSTRUMENTATION test type. The
+    // run-as-based shell smoke test (scripts/devicefarm/) exercises
+    // only the bundled binaries and bypasses the entire Activity /
+    // Compose / SurfaceView / PTY chain. The instrumentation test
+    // launches the actual Activity and verifies the UI is alive.
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:rules:1.6.1'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.3.0'
 }
 
 tasks.register('fetchVendoredAssets', Exec) {

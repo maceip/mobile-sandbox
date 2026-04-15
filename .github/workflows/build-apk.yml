@@ -78,16 +78,15 @@ jobs:
           echo "tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
           echo "Next release: $NEXT_TAG"
 
-      - name: Build APK (release variant)
+      - name: Build APK + test APK (release variant)
         run: |
           chmod +x gradlew
-          # We build :app:assembleRelease (not :app:assembleDebug) so
-          # AGP strips all jniLibs and CMake builds with -O2/-O3. The
-          # release buildType in app/build.gradle is configured with
-          # debuggable=true + signingConfigs.debug so the resulting APK
-          # is still installable + run-as-able for the Device Farm
-          # smoke test downstream.
-          ./gradlew :app:assembleRelease --no-daemon --stacktrace
+          # :app:assembleRelease           → app-release.apk (the user APK)
+          # :app:assembleReleaseAndroidTest → app-release-androidTest.apk
+          #                                  (the instrumentation test APK
+          #                                  consumed by the smoke-test-ui
+          #                                  job below)
+          ./gradlew :app:assembleRelease :app:assembleReleaseAndroidTest --no-daemon --stacktrace
 
       - name: Upload APK artifact
         if: success()
@@ -95,6 +94,14 @@ jobs:
         with:
           name: cory-apk
           path: app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: Upload androidTest APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cory-androidtest-apk
+          path: app/build/outputs/apk/androidTest/release/app-release-androidTest.apk
           retention-days: 30
 
   # Real-device smoke test on AWS Device Farm. Installs the APK on the
@@ -166,8 +173,76 @@ jobs:
         id: skip
         run: echo "status=skipped" >> "$GITHUB_OUTPUT"
 
+  # UI smoke test on AWS Device Farm via the INSTRUMENTATION test
+  # type. Runs the androidx.test instrumentation test in
+  # app/src/androidTest/java/com/cory/app/TerminalUiSmokeTest.kt
+  # against the same release APK we ship. The test launches the
+  # Activity, waits for it to reach foreground, takes a screenshot
+  # via UiAutomation, and asserts the screen is not a flat solid
+  # color (catches "black void" bugs that the run-as smoke test
+  # can't see because it bypasses the Compose / SurfaceView path).
+  #
+  # Soft-gated on AWS secrets being present, same as the legacy
+  # smoke-test job above.
+  smoke-test-ui:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for AWS secrets
+        id: have-aws
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        run: |
+          if [ -n "$AWS_ACCESS_KEY_ID" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::AWS secrets missing; UI smoke test will be skipped."
+          fi
+
+      - name: Download APK artifact
+        if: steps.have-aws.outputs.have == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: cory-apk
+          path: ./
+
+      - name: Download androidTest APK artifact
+        if: steps.have-aws.outputs.have == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: cory-androidtest-apk
+          path: ./
+
+      - name: Set up Python
+        if: steps.have-aws.outputs.have == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install boto3
+        if: steps.have-aws.outputs.have == 'true'
+        run: pip install --quiet boto3
+
+      - name: Run Device Farm instrumentation test
+        if: steps.have-aws.outputs.have == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-west-2
+          DEVICEFARM_PROJECT_ARN: ${{ secrets.DEVICEFARM_PROJECT_ARN }}
+          DEVICEFARM_POOL_ARN: ${{ secrets.DEVICEFARM_POOL_ARN }}
+          APP_APK_PATH: ./app-release.apk
+          TEST_APK_PATH: ./app-release-androidTest.apk
+        run: |
+          python3 scripts/devicefarm/run_instrumentation.py
+
   release:
-    needs: [build, smoke-test]
+    needs: [build, smoke-test, smoke-test-ui]
     if: success() && github.event_name == 'push'
     runs-on: ubuntu-latest
 
