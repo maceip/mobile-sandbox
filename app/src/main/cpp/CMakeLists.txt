@@ -12,7 +12,7 @@ get_filename_component(cory_node_include_v8 "${cory_node_root}/include/deps/v8" 
 get_filename_component(cory_node_include_uv "${cory_node_root}/include/deps/uv" ABSOLUTE)
 get_filename_component(cory_node_lib_dir "${cory_node_root}/lib/${ANDROID_ABI}" ABSOLUTE)
 get_filename_component(cory_rust_root "${cory_root}/rust/cory_rust" ABSOLUTE)
-set(cory_rust_lib "${cory_rust_root}/target/aarch64-linux-android/debug/libcory_rust.a")
+set(cory_rust_lib "${cory_rust_root}/target/aarch64-linux-android/release/libcory_rust.a")
 
 # ---------- OpenSSL from CPython's Android prefix ----------
 # CPython's official Android build (Platforms/Android) bundles a

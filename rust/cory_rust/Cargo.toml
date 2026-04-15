@@ -11,3 +11,4 @@ debug = true
 
 [profile.release]
 debug = false
+strip = "symbols"

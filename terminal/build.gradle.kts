@@ -35,6 +35,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            packaging {
+                jniLibs {
+                    keepDebugSymbols.clear()
+                }
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

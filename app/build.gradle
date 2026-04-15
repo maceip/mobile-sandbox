@@ -28,7 +28,7 @@ def coryGeneratedPythonAssetsDir = file("$buildDir/generated/cory/python-assets"
 def coryGeneratedPythonJniLibsDir = file("$buildDir/generated/cory/python-jniLibs")
 def coryRustProjectDir = file("$rootDir/rust/cory_rust")
 def coryRustTargetTriple = 'aarch64-linux-android'
-def coryRustStaticLib = file("$coryRustProjectDir/target/${coryRustTargetTriple}/debug/libcory_rust.a")
+def coryRustStaticLib = file("$coryRustProjectDir/target/${coryRustTargetTriple}/release/libcory_rust.a")
 def coryEnableNodeEmbed = coryBooleanProp('coryEnableNodeEmbed', false)
 def coryRebuildBusybox = coryBooleanProp('coryRebuildBusybox', false)
 def coryRebuildRust = coryBooleanProp('coryRebuildRust', false)
@@ -126,16 +126,6 @@ android {
         }
     }
 
-    // Run instrumentation tests against the RELEASE variant — the
-    // same APK we ship to users. AGP defaults to testing debug; we
-    // override so `:app:assembleReleaseAndroidTest` produces a test
-    // APK signed with the same key as the release app APK, and so
-    // the test APK runs against release-mode minification, native
-    // strip, and packaging behavior. Without this, the smoke test
-    // would exercise a debug variant that diverges from what users
-    // get in v0.0.N releases.
-    testBuildType = "release"
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -159,8 +149,13 @@ android {
 
     buildTypes {
         debug {
-            // Note: no `packaging.jniLibs.keepDebugSymbols` override
-            // anymore — even debug builds now strip jniLibs.
+            // Do not opt into AGP's "keep unstripped JNI for debug" defaults;
+            // package stripped .so like release so local debug matches CI/Device Farm.
+            packaging {
+                jniLibs {
+                    keepDebugSymbols.clear()
+                }
+            }
         }
         release {
             // Shipped from CI. Device Farm gates via in-process
@@ -182,7 +177,7 @@ android {
         }
     }
 
-    // Instrumentation APK must target the same build type as CI / Device Farm (release).
+    // Instrumentation tests run against the release app (not debug): same APK shape as users.
     testBuildType 'release'
 }
 
@@ -404,7 +399,7 @@ tasks.register('buildRustArm64', Exec) {
     commandLine(
             'bash',
             '-lc',
-            'source "$HOME/.cargo/env" && cargo ndk -t arm64-v8a --platform 24 build'
+            'source "$HOME/.cargo/env" && cargo ndk -t arm64-v8a --platform 24 build --release'
     )
 }
 
@@ -429,6 +424,23 @@ tasks.register('prepareNativeLibs', Copy) {
     into("${coryPythonAbi}") {
         from("${coryShellDepsDir}/${coryPythonAbi}")
         include('*.so')
+    }
+
+    doLast {
+        def hostDir =
+                org.gradle.internal.os.OperatingSystem.current().isWindows() ? 'windows-x86_64' :
+                org.gradle.internal.os.OperatingSystem.current().isMacOsX()  ? 'darwin-x86_64'  :
+                                                                                'linux-x86_64'
+        def strip = file("${android.sdkDirectory}/ndk/${android.ndkVersion}/toolchains/llvm/prebuilt/${hostDir}/bin/llvm-strip")
+        if (!strip.exists()) {
+            logger.warn("llvm-strip not found at ${strip} — skipping jni .so strip")
+            return
+        }
+        fileTree(coryGeneratedPythonJniLibsDir).matching { include '**/*.so' }.each { f ->
+            exec {
+                commandLine strip.absolutePath, '--strip-debug', f.absolutePath
+            }
+        }
     }
 }
 
