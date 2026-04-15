@@ -70,11 +70,15 @@ jobs:
         with:
           path: |
             app/.cxx
+            terminal/.cxx
             app/build/intermediates/cxx
             app/build/intermediates/cmake
             app/build/intermediates/merged_native_libs
+            terminal/build/intermediates/cxx
+            terminal/build/intermediates/cmake
           key: cmake-${{ runner.os }}-${{ hashFiles(
               'app/src/main/cpp/**',
+              'terminal/src/main/jni/**',
               'third_party/libgit2/src/**',
               'third_party/libgit2/include/**',
               'third_party/libgit2/examples/*.c',
