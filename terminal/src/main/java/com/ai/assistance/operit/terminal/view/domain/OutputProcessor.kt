@@ -47,20 +47,20 @@ class OutputProcessor(
 
         Log.d(TAG, "Processing chunk for session $sessionId. New buffer size: ${session.rawBuffer.length}")
 
+        // Always parse PTY bytes into the emulators first. detectFullscreenMode() may return early
+        // (e.g. alternate-screen enter) and must not skip parsing — otherwise the canvas stays blank
+        // while SessionManager state updates, which breaks tests and the live terminal.
+        session.ansiParser.parse(chunk)
+        session.shadowEmulator.parse(chunk)
+
         if (detectFullscreenMode(sessionId, session.rawBuffer, sessionManager)) {
             return
         }
 
-        // ANSI Canvas
-        session.ansiParser.parse(chunk)
-
-        // Always feed the shadow emulator (fixed 80x24) for TUI scraping.
-        // Runs in parallel with the display emulator so TuiBridgeView
-        // can decompose full-width TUI output into native phone widgets.
-        session.shadowEmulator.parse(chunk)
-
-        if (session.isFullscreen) {
-            // ansiParser
+        // updateSession() replaces TerminalSessionData instances; re-fetch for flags (stale isFullscreen
+        // on the local `session` reference was possible here).
+        val afterFs = sessionManager.getSession(sessionId) ?: return
+        if (afterFs.isFullscreen) {
             return
         }
 

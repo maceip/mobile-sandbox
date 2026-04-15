@@ -1,42 +1,31 @@
 #!/usr/bin/env python3
 """
-scripts/devicefarm/run.py — end-to-end Device Farm smoke test runner.
+scripts/devicefarm/run.py — AWS Device Farm runner for Cory instrumentation tests.
 
-Uploads an APK, the `inner-smoke.sh` script bundled as an Appium-Node
-test package, and `test-spec.yml`, schedules a run on the project's
-"Top Devices" pool, polls until the run finishes, then downloads the
-"Test spec output" artifact from the first job and greps it for our
-`ALL_TESTS_PASSED` sentinel.
-
-Exit code 0 only if the sentinel is present in the output for all
-devices tested — that's the real source of truth, not Device Farm's
-UI-level FAILED marker, which is a misfeature of its APPIUM_NODE
-result parser (it expects mocha-style stdout patterns and synthesizes
-a "failed" result entry when it doesn't see them).
+Uploads the release APK + androidTest APK, schedules INSTRUMENTATION (AndroidJUnit),
+polls until the run completes, then checks every device job result is PASSED.
 
 Env vars:
-  AWS_ACCESS_KEY_ID       (required)
-  AWS_SECRET_ACCESS_KEY   (required)
-  AWS_REGION              (default us-west-2 — DF mobile is only there)
-  DEVICEFARM_PROJECT_ARN  (required — e.g. arn:aws:devicefarm:us-west-2:<acct>:project:<uuid>)
-  DEVICEFARM_POOL_ARN     (required — e.g. "Top Devices" curated pool)
-  APK_PATH                (required — path to app-debug.apk)
+  AWS_REGION              (default us-west-2)
+  DEVICEFARM_PROJECT_ARN  (required)
+  DEVICEFARM_POOL_ARN     (required)
+  APK_PATH                (required — app-release.apk)
+  TEST_APK_PATH           (required — app-release-androidTest.apk)
 
-This script has no dependencies beyond boto3 + stdlib, which CI installs.
+Credentials (boto3 default chain):
+  • If AWS_SHARED_CREDENTIALS_FILE is unset, the runner uses the first path that exists among:
+    CORY_AWS_CREDENTIALS_FILE (optional override), /home/cory/.aws/credentials (Cory build host),
+    then ~/.aws/credentials.
+  • Alternatively set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (and optional AWS_SESSION_TOKEN).
 """
 
 from __future__ import annotations
 
-import json
 import os
-import re
 import sys
-import tempfile
 import time
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 try:
@@ -46,53 +35,37 @@ except ImportError:
     sys.exit(2)
 
 
-def _http_get_with_retry(url: str, tries: int = 5, timeout: int = 30) -> bytes:
-    """GET with exponential backoff for transient S3 5xx / network errors.
-
-    Device Farm's signed S3 URLs sporadically return 503 Service Unavailable
-    under load; we've seen it maybe 1 in 10 times. Retry with 1s/2s/4s/8s/16s
-    backoff before giving up.
-    """
-    last_err: Exception | None = None
-    for i in range(tries):
-        try:
-            with urlopen(url, timeout=timeout) as r:
-                return r.read()
-        except HTTPError as e:
-            last_err = e
-            if e.code in (429, 500, 502, 503, 504) and i < tries - 1:
-                delay = 2 ** i
-                sys.stderr.write(
-                    f"[df-smoke] HTTP {e.code} on fetch, retry {i + 1}/{tries} in {delay}s\n"
-                )
-                time.sleep(delay)
-                continue
-            raise
-        except URLError as e:
-            last_err = e
-            if i < tries - 1:
-                delay = 2 ** i
-                sys.stderr.write(
-                    f"[df-smoke] URL error {e}, retry {i + 1}/{tries} in {delay}s\n"
-                )
-                time.sleep(delay)
-                continue
-            raise
-    # unreachable
-    raise RuntimeError(f"_http_get_with_retry exhausted: {last_err}")
-
-
-HERE = Path(__file__).resolve().parent
-INNER_SH = HERE / "inner-smoke.sh"
-TEST_SPEC = HERE / "test-spec.yml"
-SENTINEL = "ALL_TESTS_PASSED"
 POLL_INTERVAL_S = 20
 MAX_WAIT_S = 30 * 60
+
+# Cory build machines often keep keys in /home/cory/.aws/credentials (WSL/Linux or shared home).
+_BUILD_HOST_SHARED_CREDS = Path("/home/cory/.aws/credentials")
 
 
 def log(msg: str) -> None:
     sys.stdout.write(f"[df-smoke] {msg}\n")
     sys.stdout.flush()
+
+
+def configure_default_aws_credentials_file() -> None:
+    """If AWS_SHARED_CREDENTIALS_FILE is not set, point boto3 at an existing shared credentials file."""
+    if os.environ.get("AWS_SHARED_CREDENTIALS_FILE"):
+        return
+    candidates: list[Path] = []
+    override = os.environ.get("CORY_AWS_CREDENTIALS_FILE")
+    if override:
+        candidates.append(Path(override))
+    candidates.append(_BUILD_HOST_SHARED_CREDS)
+    candidates.append(Path.home() / ".aws" / "credentials")
+
+    for path in candidates:
+        try:
+            if path.is_file():
+                os.environ["AWS_SHARED_CREDENTIALS_FILE"] = str(path.resolve())
+                log(f"using AWS credentials file: {path}")
+                return
+        except OSError:
+            continue
 
 
 def require_env(name: str) -> str:
@@ -108,6 +81,7 @@ class Config:
     project_arn: str
     pool_arn: str
     apk_path: Path
+    test_apk_path: Path
     region: str
 
 
@@ -116,38 +90,9 @@ def load_config() -> Config:
         project_arn=require_env("DEVICEFARM_PROJECT_ARN"),
         pool_arn=require_env("DEVICEFARM_POOL_ARN"),
         apk_path=Path(require_env("APK_PATH")),
+        test_apk_path=Path(require_env("TEST_APK_PATH")),
         region=os.environ.get("AWS_REGION") or "us-west-2",
     )
-
-
-def build_test_package() -> Path:
-    """Zip inner-smoke.sh plus a minimal Appium-Node-compatible package layout."""
-    if not INNER_SH.exists():
-        sys.stderr.write(f"ERROR: {INNER_SH} not found\n")
-        sys.exit(2)
-    tmp = Path(tempfile.mkdtemp(prefix="df-smoke-"))
-    zip_path = tmp / "tests.zip"
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr(
-            "package.json",
-            json.dumps(
-                {
-                    "name": "cory-smoke",
-                    "version": "1.0.0",
-                    "main": "tests/smoke.js",
-                    "scripts": {"test": "node tests/smoke.js"},
-                },
-                indent=2,
-            ),
-        )
-        z.writestr(
-            "tests/smoke.js",
-            "// Placeholder: real smoke test runs in Device Farm test spec.\n"
-            'console.log("placeholder");\nprocess.exit(0);\n',
-        )
-        z.write(INNER_SH, "inner-smoke.sh")
-    log(f"built test package {zip_path} ({zip_path.stat().st_size} bytes)")
-    return zip_path
 
 
 def _put_to_signed_url(url: str, path: Path) -> None:
@@ -170,7 +115,6 @@ def upload(df, project_arn: str, path: Path, name: str, upload_type: str) -> str
     url = resp["upload"]["url"]
     log(f"uploading {name} ({upload_type}) — {path.stat().st_size} bytes")
     _put_to_signed_url(url, path)
-    # Wait for validation
     deadline = time.time() + 120
     while time.time() < deadline:
         status = df.get_upload(arn=arn)["upload"]["status"]
@@ -183,21 +127,18 @@ def upload(df, project_arn: str, path: Path, name: str, upload_type: str) -> str
     raise RuntimeError(f"{name} upload validation timeout")
 
 
-def schedule_run(
-    df, project_arn: str, pool_arn: str, apk_arn: str, test_arn: str, spec_arn: str
-) -> str:
+def schedule_run(df, project_arn: str, pool_arn: str, apk_arn: str, test_apk_arn: str) -> str:
     resp = df.schedule_run(
         projectArn=project_arn,
         appArn=apk_arn,
         devicePoolArn=pool_arn,
-        name=f"cory-smoke-{int(time.time())}",
+        name=f"cory-instrumentation-{int(time.time())}",
         test={
-            "type": "APPIUM_NODE",
-            "testPackageArn": test_arn,
-            "testSpecArn": spec_arn,
+            "type": "INSTRUMENTATION",
+            "testPackageArn": test_apk_arn,
         },
         executionConfiguration={
-            "jobTimeoutMinutes": 15,
+            "jobTimeoutMinutes": 30,
             "videoCapture": False,
         },
     )
@@ -205,7 +146,6 @@ def schedule_run(
 
 
 def wait_for_run(df, run_arn: str) -> dict:
-    """Poll until run reaches a terminal state."""
     start = time.time()
     last_done = -1
     while True:
@@ -224,97 +164,75 @@ def wait_for_run(df, run_arn: str) -> dict:
         time.sleep(POLL_INTERVAL_S)
 
 
-def fetch_first_job_output(df, run_arn: str) -> tuple[str, dict]:
-    """Return (test spec output as string, per-device job summaries)."""
+def summarize_jobs(df, run_arn: str) -> int:
+    """Return 0 if every job PASSED, else 1."""
     jobs = df.list_jobs(arn=run_arn)["jobs"]
     if not jobs:
-        raise RuntimeError("no jobs in run")
+        log("FAIL: no jobs in run")
+        return 1
 
-    per_device = {}
-    output_text = ""
-    for j in jobs:
-        device = f"{j['device']['name']} ({j['device']['os']})"
-        per_device[device] = {
-            "result": j["result"],
-            "status": j["status"],
-        }
-        suites = df.list_suites(arn=j["arn"])["suites"]
-        tests_suite = next(
-            (s for s in suites if s["name"] == "Tests Suite"), None
-        )
-        if tests_suite is None:
-            continue
-        tests = df.list_tests(arn=tests_suite["arn"])["tests"]
-        if not tests:
-            continue
-        artifacts = df.list_artifacts(arn=tests[0]["arn"], type="FILE")["artifacts"]
-        tso = next(
-            (a for a in artifacts if a["name"] == "Test spec output"), None
-        )
-        if tso is None:
-            continue
-        text = _http_get_with_retry(tso["url"]).decode("utf-8", errors="replace")
-        per_device[device]["output"] = text
-        if not output_text:
-            output_text = text
-
-    return output_text, per_device
-
-
-def summarize(per_device: dict) -> int:
-    """Return exit code: 0 if every device saw ALL_TESTS_PASSED, else non-zero."""
     log("")
     log("=" * 60)
-    log("per-device smoke-test summary")
+    log("per-device instrumentation results")
     log("=" * 60)
     fails = 0
-    for device, info in per_device.items():
-        output = info.get("output", "")
-        if SENTINEL in output:
+    for j in jobs:
+        device = f"{j['device']['name']} ({j['device']['os']})"
+        result = j.get("result", "")
+        if result == "PASSED":
             log(f"  PASS  {device}")
         else:
-            log(f"  FAIL  {device}")
+            log(f"  FAIL  {device}  result={result!r} status={j.get('status')!r}")
             fails += 1
-            # Dig for the specific failure line
-            m = re.search(r"^(FAIL.*?|.*?exit [1-9][0-9]*.*?)$", output, re.MULTILINE)
-            if m:
-                log(f"        {m.group(1)}")
+            # Pull a few test names / failures if present
+            try:
+                suites = df.list_suites(arn=j["arn"])["suites"]
+                for s in suites:
+                    tests = df.list_tests(arn=s["arn"])["tests"]
+                    for t in tests[:20]:
+                        if t.get("result") not in ("PASSED", None, ""):
+                            log(f"        {t.get('name')}: {t.get('result')}")
+            except Exception as e:
+                log(f"        (could not list tests: {e})")
 
     log("=" * 60)
     if fails == 0:
-        log(f"ALL {len(per_device)} DEVICES PASSED")
+        log(f"ALL {len(jobs)} DEVICES PASSED")
         return 0
-    log(f"{fails}/{len(per_device)} DEVICES FAILED")
+    log(f"{fails}/{len(jobs)} DEVICES FAILED")
     return 1
 
 
 def main() -> int:
+    configure_default_aws_credentials_file()
     cfg = load_config()
 
     if not cfg.apk_path.exists():
         sys.stderr.write(f"ERROR: APK not found at {cfg.apk_path}\n")
         return 2
+    if not cfg.test_apk_path.exists():
+        sys.stderr.write(f"ERROR: test APK not found at {cfg.test_apk_path}\n")
+        return 2
 
     df = boto3.client("devicefarm", region_name=cfg.region)
 
-    test_pkg = build_test_package()
-
-    log("uploading APK + test package + test spec to Device Farm")
+    log("uploading app + instrumentation test APK to Device Farm")
     apk_arn = upload(
         df, cfg.project_arn, cfg.apk_path, cfg.apk_path.name, "ANDROID_APP"
     )
     test_arn = upload(
-        df, cfg.project_arn, test_pkg, "tests.zip", "APPIUM_NODE_TEST_PACKAGE"
-    )
-    spec_arn = upload(
-        df, cfg.project_arn, TEST_SPEC, "test-spec.yml", "APPIUM_NODE_TEST_SPEC"
+        df,
+        cfg.project_arn,
+        cfg.test_apk_path,
+        cfg.test_apk_path.name,
+        "INSTRUMENTATION_TEST_PACKAGE",
     )
 
     log("")
-    log("scheduling run against pool")
-    run_arn = schedule_run(df, cfg.project_arn, cfg.pool_arn, apk_arn, test_arn, spec_arn)
+    log("scheduling INSTRUMENTATION run")
+    run_arn = schedule_run(df, cfg.project_arn, cfg.pool_arn, apk_arn, test_arn)
     log(f"run ARN: {run_arn}")
-    log(f"  view: https://us-west-2.console.aws.amazon.com/devicefarm/")
+    log("  view: https://us-west-2.console.aws.amazon.com/devicefarm/")
 
     log("")
     log("polling run status")
@@ -324,8 +242,7 @@ def main() -> int:
         f"device_minutes_metered={run['deviceMinutes']['metered']:.2f}"
     )
 
-    _, per_device = fetch_first_job_output(df, run_arn)
-    return summarize(per_device)
+    return summarize_jobs(df, run_arn)
 
 
 if __name__ == "__main__":

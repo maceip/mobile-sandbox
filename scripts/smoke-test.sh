@@ -178,9 +178,9 @@ esac
 
 echo ""
 echo "=========================================================="
-echo " 2. python3 -c print(1+1)"
+echo " 2. python3 ssl/sqlite3 + arithmetic"
 echo "=========================================================="
-PY_OUT=\$(python3 -c "print(1+1)")
+PY_OUT=\$(python3 -c "import ssl, sqlite3, json, os, urllib.request; print(1+1)" 2>&1)
 echo "\$PY_OUT"
 if [ "\$PY_OUT" != "2" ]; then
   echo "__FAIL__python__\$PY_OUT"
@@ -189,25 +189,25 @@ fi
 
 echo ""
 echo "=========================================================="
-echo " 3. git init + git worktree list (empty repo)"
+echo " 3. git init + git worktree list (main worktree line)"
 echo "=========================================================="
-rm -rf "\$HOME/smoketest" "\$HOME/smoketest-wt"
+rm -rf "\$HOME/smoketest" "\$HOME/smoketest-wt" "\$HOME/clonetest"
 mkdir -p "\$HOME/smoketest"
 cd "\$HOME/smoketest"
 git init .
 echo hi > a
-git -c user.email=ci@cory.app -c user.name=CI add a
+git add a
 git -c user.email=ci@cory.app -c user.name=CI commit -m init
 WT_LIST=\$(git worktree list)
 echo "\$WT_LIST"
-echo "\$WT_LIST" | grep -q "no worktrees" || {
+echo "\$WT_LIST" | grep -Fq "\$HOME/smoketest" || {
   echo "__FAIL__worktree_list__\$WT_LIST"
   exit 22
 }
 
 echo ""
 echo "=========================================================="
-echo " 4. git worktree add (git_worktree_add path)"
+echo " 4. git worktree add"
 echo "=========================================================="
 git worktree add "\$HOME/smoketest-wt"
 WT_LIST2=\$(git worktree list)
@@ -215,6 +215,61 @@ echo "\$WT_LIST2"
 echo "\$WT_LIST2" | grep -q "smoketest-wt" || {
   echo "__FAIL__worktree_add__\$WT_LIST2"
   exit 23
+}
+
+echo ""
+echo "=========================================================="
+echo " 5. git clone https:// (OpenSSL)"
+echo "=========================================================="
+CLONE_OUT=\$(git clone https://github.com/octocat/Hello-World "\$HOME/clonetest" 2>&1)
+echo "\$CLONE_OUT"
+if [ ! -d "\$HOME/clonetest/.git" ]; then
+  echo "__FAIL__clone__\$CLONE_OUT"
+  exit 24
+fi
+
+echo ""
+echo "=========================================================="
+echo " 6. bash --version"
+echo "=========================================================="
+BASH_OUT=\$(bash --version 2>&1 | head -1)
+echo "\$BASH_OUT"
+echo "\$BASH_OUT" | grep -qi 'GNU bash' || {
+  echo "__FAIL__bash__\$BASH_OUT"
+  exit 25
+}
+
+echo ""
+echo "=========================================================="
+echo " 7. busybox echo"
+echo "=========================================================="
+BB_OUT=\$(busybox echo cory-busybox-test 2>&1)
+echo "\$BB_OUT"
+[ "\$BB_OUT" = "cory-busybox-test" ] || {
+  echo "__FAIL__busybox__\$BB_OUT"
+  exit 26
+}
+
+echo ""
+echo "=========================================================="
+echo " 8. pip --version"
+echo "=========================================================="
+PIP_OUT=\$(pip --version 2>&1)
+echo "\$PIP_OUT"
+echo "\$PIP_OUT" | grep -qiE 'pip [0-9]+' || {
+  echo "__FAIL__pip__\$PIP_OUT"
+  exit 27
+}
+
+echo ""
+echo "=========================================================="
+echo " 9. npm --version"
+echo "=========================================================="
+NPM_OUT=\$(npm --version 2>&1)
+echo "\$NPM_OUT"
+echo "\$NPM_OUT" | grep -qE '^[0-9]+[.][0-9]+[.][0-9]+' || {
+  echo "__FAIL__npm__\$NPM_OUT"
+  exit 28
 }
 
 echo ""
@@ -246,6 +301,16 @@ elif echo "$OUT" | grep -q "__FAIL__worktree_list__"; then
     fail "git worktree list produced unexpected output" 22
 elif echo "$OUT" | grep -q "__FAIL__worktree_add__"; then
     fail "git worktree add failed" 23
+elif echo "$OUT" | grep -q "__FAIL__clone__"; then
+    fail "git clone (HTTPS) failed" 24
+elif echo "$OUT" | grep -q "__FAIL__bash__"; then
+    fail "bash --version failed" 25
+elif echo "$OUT" | grep -q "__FAIL__busybox__"; then
+    fail "busybox failed" 26
+elif echo "$OUT" | grep -q "__FAIL__pip__"; then
+    fail "pip --version failed" 27
+elif echo "$OUT" | grep -q "__FAIL__npm__"; then
+    fail "npm --version failed" 28
 else
     log "dumping recent logcat for context"
     _adb logcat -d -s TerminalBootstrap:V CoryTerminalRuntime:V AndroidRuntime:E DEBUG:V System.err:W | tail -100

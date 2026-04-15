@@ -8,10 +8,12 @@ import android.os.Build
 import android.view.WindowManager
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.fillMaxSize
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.ai.assistance.operit.terminal.TerminalEnv
@@ -45,10 +47,18 @@ fun TerminalScreen(
         }
     }
 
-    // Auto-create the first session if none exist.
+    // Auto-create the first session if none exist. Retries: a single failure left the UI with an
+    // empty SessionManager forever because LaunchedEffect(manager) does not re-run.
     LaunchedEffect(manager) {
-        if (manager.sessions.value.isEmpty()) {
-            manager.createNewSession()
+        var attempt = 0
+        while (manager.sessions.value.isEmpty() && attempt < 25) {
+            attempt++
+            try {
+                manager.createNewSession()
+            } catch (e: Exception) {
+                Log.e("TerminalScreen", "createNewSession failed (attempt $attempt)", e)
+            }
+            delay(400)
         }
     }
 

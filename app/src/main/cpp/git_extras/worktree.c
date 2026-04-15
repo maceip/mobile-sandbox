@@ -17,9 +17,41 @@
 #include "common.h"
 #include <git2/worktree.h>
 
+static void format_worktree_line(git_repository *wt_repo, const char *path)
+{
+	char short_sha[8] = "0000000";
+	char branch[256] = "[unborn]";
+
+	git_reference *head_ref = NULL;
+	if (git_repository_head(&head_ref, wt_repo) == 0) {
+		git_reference *resolved = NULL;
+		if (git_reference_resolve(&resolved, head_ref) == 0) {
+			const git_oid *oid = git_reference_target(resolved);
+			if (oid) {
+				char full[GIT_OID_HEXSZ + 1];
+				git_oid_tostr(full, sizeof(full), oid);
+				memcpy(short_sha, full, 7);
+				short_sha[7] = '\0';
+			}
+			git_reference_free(resolved);
+		}
+		const char *shorthand = git_reference_shorthand(head_ref);
+		if (shorthand) {
+			snprintf(branch, sizeof(branch), "[%s]", shorthand);
+		}
+		git_reference_free(head_ref);
+	} else if (head_ref) {
+		git_reference_free(head_ref);
+	}
+
+	printf("%-40s %s %s\n", path, short_sha, branch);
+}
+
 static int print_worktree(git_repository *repo, const char *name)
 {
 	git_worktree *wt = NULL;
+	git_repository *wt_repo = NULL;
+
 	if (git_worktree_lookup(&wt, repo, name) != 0) {
 		fprintf(stderr, "worktree: lookup failed for '%s': %s\n",
 			name, git_error_last() ? git_error_last()->message : "?");
@@ -27,12 +59,19 @@ static int print_worktree(git_repository *repo, const char *name)
 	}
 
 	const char *path = git_worktree_path(wt);
+	if (!path) {
+		git_worktree_free(wt);
+		return -1;
+	}
+
 	int valid = (git_worktree_validate(wt) == 0);
 
-	printf("%-24s %s%s\n",
-	       name,
-	       path ? path : "<unknown>",
-	       valid ? "" : "  (prunable)");
+	if (valid && git_repository_open_from_worktree(&wt_repo, wt) == 0) {
+		format_worktree_line(wt_repo, path);
+		git_repository_free(wt_repo);
+	} else {
+		printf("%-40s %s %s\n", path, "0000000", "(prunable)");
+	}
 
 	git_worktree_free(wt);
 	return 0;
@@ -40,20 +79,27 @@ static int print_worktree(git_repository *repo, const char *name)
 
 static int cmd_list(git_repository *repo)
 {
-	git_strarray names = {0};
-	int err = git_worktree_list(&names, repo);
-	if (err < 0) {
-		fprintf(stderr, "worktree list failed: %s\n",
-			git_error_last() ? git_error_last()->message : "?");
-		return err;
+	/* Print main worktree first — same ordering as real git. */
+	const char *main_workdir = git_repository_workdir(repo);
+	if (main_workdir) {
+		char path_clean[4096];
+		snprintf(path_clean, sizeof(path_clean), "%s", main_workdir);
+		size_t len = strlen(path_clean);
+		if (len > 0 && path_clean[len - 1] == '/') {
+			path_clean[len - 1] = '\0';
+		}
+		format_worktree_line(repo, path_clean);
 	}
 
-	if (names.count == 0) {
-		printf("(no worktrees)\n");
-	} else {
-		for (size_t i = 0; i < names.count; i++) {
-			print_worktree(repo, names.strings[i]);
-		}
+	git_strarray names = {0};
+	if (git_worktree_list(&names, repo) < 0) {
+		fprintf(stderr, "worktree list failed: %s\n",
+			git_error_last() ? git_error_last()->message : "?");
+		return -1;
+	}
+
+	for (size_t i = 0; i < names.count; i++) {
+		print_worktree(repo, names.strings[i]);
 	}
 
 	git_strarray_dispose(&names);
@@ -149,7 +195,7 @@ static int cmd_remove(git_repository *repo, int argc, char **argv)
 
 		stat_opts.show = GIT_STATUS_SHOW_INDEX_AND_WORKDIR;
 		stat_opts.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED |
-		                  GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS;
+				  GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS;
 
 		if (git_status_list_new(&status, wt_repo, &stat_opts) < 0) {
 			fprintf(stderr, "worktree remove: cannot read status: %s\n",

@@ -65,6 +65,24 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
           restore-keys: gradle-
 
+      - name: Cache CMake build
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/.cxx
+            app/build/intermediates/cxx
+            app/build/intermediates/cmake
+            app/build/intermediates/merged_native_libs
+          key: cmake-${{ runner.os }}-${{ hashFiles(
+              'app/src/main/cpp/**',
+              'third_party/libgit2/src/**',
+              'third_party/libgit2/include/**',
+              'third_party/libgit2/examples/*.c',
+              'third_party/libgit2/CMakeLists.txt'
+            ) }}
+          restore-keys: |
+            cmake-${{ runner.os }}-
+
       - name: Fetch prebuilt assets
         run: |
           python3 scripts/build_all_assets.py --fetch-prebuilt --skip-app
@@ -89,17 +107,30 @@ jobs:
           echo "tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
           echo "Next release: $NEXT_TAG"
 
+      - name: Decode release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::RELEASE_KEYSTORE_B64 not set; release will use debug keystore"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/keystores"
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/keystores/cory-release.keystore"
+          echo "CORY_KEYSTORE=$RUNNER_TEMP/keystores/cory-release.keystore" >> "$GITHUB_ENV"
+
       - name: Build APK + test APK (release variant)
+        env:
+          CORY_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          CORY_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          CORY_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          # :app:assembleRelease           → app-release.apk (the user APK)
-          # :app:assembleReleaseAndroidTest → app-release-androidTest.apk
-          #                                  (the instrumentation test APK
-          #                                  consumed by the smoke-test-ui
-          #                                  job below)
+          # :app:assembleRelease → app-release.apk
+          # :app:assembleReleaseAndroidTest → app-release-androidTest.apk (Device Farm + smoke-test-ui)
           ./gradlew :app:assembleRelease :app:assembleReleaseAndroidTest --no-daemon --stacktrace
 
-      - name: Upload APK artifact
+      - name: Upload release APK artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
@@ -115,14 +146,9 @@ jobs:
           path: app/build/outputs/apk/androidTest/release/app-release-androidTest.apk
           retention-days: 30
 
-  # Real-device smoke test on AWS Device Farm. Installs the APK on the
-  # Top Devices pool (currently Pixel 9, Pixel 9 Pro XL, Galaxy A36,
-  # Galaxy S24+, Galaxy Tab S9), launches the main activity, and
-  # exercises node, python3, git, git worktree inside the app sandbox
-  # via `adb shell run-as com.cory.app sh`. The runner in
-  # scripts/devicefarm/run.py parses the Test spec output artifact
-  # from every job and exits 0 only if every device saw the
-  # ALL_TESTS_PASSED sentinel. ~2-3 min total, ~$1 per push.
+  # Real-device smoke on AWS Device Farm: installs release + androidTest APKs
+  # and runs INSTRUMENTATION (TerminalSmokeTest). scripts/devicefarm/run.py
+  # requires every device job PASSED.
   #
   # Skipped (not failed) if the AWS secrets are not configured on the
   # repo, so forks/first-time pushes still get a build + release path.
@@ -148,11 +174,18 @@ jobs:
             echo "::warning::AWS secrets missing; Device Farm smoke test will be skipped. Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, DEVICEFARM_PROJECT_ARN, DEVICEFARM_POOL_ARN as repo secrets to enable it."
           fi
 
-      - name: Download APK artifact
+      - name: Download release APK
         if: steps.have-aws.outputs.have == 'true'
         uses: actions/download-artifact@v4
         with:
           name: cory-apk
+          path: ./
+
+      - name: Download androidTest APK
+        if: steps.have-aws.outputs.have == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: cory-androidtest-apk
           path: ./
 
       - name: Set up Python
@@ -175,6 +208,7 @@ jobs:
           DEVICEFARM_PROJECT_ARN: ${{ secrets.DEVICEFARM_PROJECT_ARN }}
           DEVICEFARM_POOL_ARN: ${{ secrets.DEVICEFARM_POOL_ARN }}
           APK_PATH: ./app-release.apk
+          TEST_APK_PATH: ./app-release-androidTest.apk
         run: |
           python3 scripts/devicefarm/run.py
           echo "status=passed" >> "$GITHUB_OUTPUT"

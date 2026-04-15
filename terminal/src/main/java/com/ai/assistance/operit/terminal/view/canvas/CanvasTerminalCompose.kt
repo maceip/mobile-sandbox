@@ -3,8 +3,16 @@ package com.ai.assistance.operit.terminal.view.canvas
 import android.graphics.PixelFormat
 import android.view.MotionEvent
 import android.view.ViewGroup
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiTerminalEmulator
 
@@ -31,6 +39,17 @@ fun CanvasTerminalScreen(
     onTabClose: ((String) -> Unit)? = null,
     onNewTab: (() -> Unit)? = null
 ) {
+    var semanticsText by remember(emulator) { mutableStateOf("") }
+
+    DisposableEffect(emulator) {
+        val listener = {
+            semanticsText = emulator.renderFullTerminalTextForSemantics()
+        }
+        listener()
+        emulator.addChangeListener(listener)
+        onDispose { emulator.removeChangeListener(listener) }
+    }
+
     AndroidView(
         factory = { context ->
             CanvasTerminalView(context).apply {
@@ -94,5 +113,7 @@ fun CanvasTerminalScreen(
             view.release()
         },
         modifier = modifier
+            .testTag("terminal-output")
+            .semantics { contentDescription = semanticsText }
     )
 }

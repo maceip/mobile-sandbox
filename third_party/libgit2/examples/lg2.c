@@ -74,6 +74,9 @@ int main(int argc, char **argv)
 	struct args_info args = ARGS_INFO_INIT;
 	git_repository *repo = NULL;
 	const char *git_dir = NULL;
+	const char **cfg_overrides = NULL;
+	size_t cfg_overrides_count = 0;
+	size_t cfg_overrides_cap = 0;
 	int return_code = 1;
 	size_t i;
 
@@ -89,6 +92,24 @@ int main(int argc, char **argv)
 			/* non-arg */
 			break;
 		} else if (optional_str_arg(&git_dir, &args, "--git-dir", ".git")) {
+			continue;
+		} else if (strcmp(a, "-c") == 0 && args.pos + 1 < args.argc) {
+			args.pos++;
+			if (cfg_overrides_count == cfg_overrides_cap) {
+				size_t ncap = cfg_overrides_cap ? cfg_overrides_cap * 2 : 4;
+				const char **n =
+					realloc(cfg_overrides, ncap * sizeof(*cfg_overrides));
+				if (!n) {
+					fprintf(stderr, "oom in -c handling\n");
+					free(cfg_overrides);
+					cfg_overrides = NULL;
+					git_libgit2_shutdown();
+					return 1;
+				}
+				cfg_overrides = n;
+				cfg_overrides_cap = ncap;
+			}
+			cfg_overrides[cfg_overrides_count++] = args.argv[args.pos];
 			continue;
 		} else if (match_arg_separator(&args)) {
 			break;
@@ -114,6 +135,26 @@ int main(int argc, char **argv)
 				  "Unable to open repository '%s'", git_dir);
 		}
 
+		if (cfg_overrides_count > 0 && repo) {
+			git_config *cfg = NULL;
+			if (git_repository_config(&cfg, repo) == 0) {
+				for (size_t j = 0; j < cfg_overrides_count; j++) {
+					const char *pair = cfg_overrides[j];
+					const char *eq = strchr(pair, '=');
+					if (!eq || eq == pair)
+						continue;
+					size_t keylen = (size_t)(eq - pair);
+					char keybuf[512];
+					if (keylen >= sizeof(keybuf))
+						continue;
+					memcpy(keybuf, pair, keylen);
+					keybuf[keylen] = '\0';
+					git_config_set_string(cfg, keybuf, eq + 1);
+				}
+				git_config_free(cfg);
+			}
+		}
+
 		return_code = run_command(commands[i].fn, repo, args);
 		goto shutdown;
 	}
@@ -123,6 +164,7 @@ int main(int argc, char **argv)
 shutdown:
 	git_repository_free(repo);
 	git_libgit2_shutdown();
+	free(cfg_overrides);
 
 	return return_code;
 }

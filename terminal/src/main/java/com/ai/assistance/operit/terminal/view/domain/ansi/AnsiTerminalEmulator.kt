@@ -638,6 +638,25 @@ class AnsiTerminalEmulator(
         }
         return builder.toString()
     }
+
+    /**
+     * History + visible screen as plain text (for UI tests / semantics).
+     * Capped to avoid huge binder payloads; tail is usually enough for assertions.
+     */
+    fun renderFullTerminalTextForSemantics(maxChars: Int = 24_000): String {
+        val full = getFullContent()
+        val sb = StringBuilder()
+        for (i in full.indices) {
+            val line = full[i]
+            for (j in line.indices) {
+                val ch = line[j].char
+                sb.append(if (ch == '\u0000') ' ' else ch)
+            }
+            if (i < full.size - 1) sb.append('\n')
+        }
+        val s = sb.toString()
+        return if (s.length <= maxChars) s else s.takeLast(maxChars)
+    }
     
     fun getCursorX(): Int = cursorX
     fun getCursorY(): Int = cursorY

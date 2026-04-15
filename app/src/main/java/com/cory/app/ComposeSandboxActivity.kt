@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import com.ai.assistance.operit.terminal.TerminalManager
 import com.ai.assistance.operit.terminal.main.TerminalScreen
 import com.ai.assistance.operit.terminal.rememberTerminalEnv
@@ -87,7 +88,9 @@ private fun ComposeSandboxScreen() {
             ready -> {
                 val manager = remember { TerminalManager.getInstance(context) }
                 val env = rememberTerminalEnv(manager)
-                TerminalScreen(env)
+                Box(modifier = Modifier.testTag("compose-sandbox-terminal-ready")) {
+                    TerminalScreen(env)
+                }
             }
             startupError != null -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
