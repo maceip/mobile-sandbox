@@ -281,6 +281,38 @@ tasks.register('preparePythonAssets', Copy) {
 
     doLast {
         mkdir("${coryGeneratedPythonAssetsDir}/python/cwd")
+
+        // Strip debug symbols from the bundled node binary. Upstream
+        // node24-android.tgz in S3 ships ~913 MB unstripped (V8 + Node
+        // + OpenSSL all with DWARF), which dominates the installed
+        // size. llvm-strip --strip-debug drops it to ~50-80 MB without
+        // touching dynamic symbols or breaking the binary's behavior.
+        //
+        // Runs here in doLast (not a separate task) so it hooks onto
+        // preparePythonAssets' up-to-date tracking — if the Copy step
+        // re-copied a fresh node from third_party/, we re-strip; if
+        // the Copy was up-to-date, the already-stripped output stays.
+        def hostDir =
+                org.gradle.internal.os.OperatingSystem.current().isWindows() ? 'windows-x86_64' :
+                org.gradle.internal.os.OperatingSystem.current().isMacOsX()  ? 'darwin-x86_64'  :
+                                                                                'linux-x86_64'
+        def strip = file("${android.sdkDirectory}/ndk/${android.ndkVersion}/toolchains/llvm/prebuilt/${hostDir}/bin/llvm-strip")
+        def nodeInAssets = file("${coryGeneratedPythonAssetsDir}/python/bin/node")
+
+        if (!strip.exists()) {
+            logger.warn("llvm-strip not found at ${strip} — skipping node strip")
+        } else if (!nodeInAssets.exists()) {
+            logger.warn("node binary not in assets dir; nothing to strip")
+        } else {
+            def before = nodeInAssets.length()
+            exec {
+                commandLine strip.absolutePath, '--strip-debug', nodeInAssets.absolutePath
+            }
+            def after = nodeInAssets.length()
+            logger.lifecycle(String.format(
+                    "stripped node: %,d -> %,d bytes (saved %,d, %.1f%% reduction)",
+                    before, after, before - after, (1.0 - (after / (double) before)) * 100.0))
+        }
     }
 }
 
