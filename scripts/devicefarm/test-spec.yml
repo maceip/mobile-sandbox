@@ -101,22 +101,15 @@ phases:
         echo "inner script exit=$INNER_RC"
         [ "$INNER_RC" = "0" ] || exit "$INNER_RC"
 
-        # Emit a JUnit XML result so Device Farm's APPIUM_NODE parser
-        # sees proof of our passes. Without this, Device Farm synthesizes
-        # a single failed test entry regardless of phase exit code.
-        mkdir -p "$DEVICEFARM_LOG_DIR"
-        cat > "$DEVICEFARM_LOG_DIR/cory-smoke-junit.xml" <<'XML'
-        <?xml version="1.0" encoding="UTF-8"?>
-        <testsuites>
-          <testsuite name="cory.smoke" tests="4" failures="0" errors="0" skipped="0">
-            <testcase classname="cory.smoke" name="node_version"/>
-            <testcase classname="cory.smoke" name="python3_arithmetic"/>
-            <testcase classname="cory.smoke" name="git_init_worktree_list"/>
-            <testcase classname="cory.smoke" name="git_worktree_add"/>
-          </testsuite>
-        </testsuites>
-        XML
-        ls -la "$DEVICEFARM_LOG_DIR"
+        # Note: Device Farm's APPIUM_NODE result parser doesn't read
+        # arbitrary JUnit XML files from $DEVICEFARM_LOG_DIR — we tried.
+        # Its UI marks "Tests Suite" as FAILED no matter what we do
+        # because we're using the test type as a vehicle for a custom
+        # shell script, not a real Appium test. The truth is in the
+        # `Test spec output` artifact, which scripts/devicefarm/run.py
+        # parses for the ALL_TESTS_PASSED sentinel and uses as the
+        # actual gate. Ignore the Device Farm UI; trust the runner's
+        # exit code.
 
         echo "=========================================================="
         echo " smoke test completed successfully"

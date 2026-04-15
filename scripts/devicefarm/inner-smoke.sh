@@ -83,4 +83,26 @@ fi
 echo "worktree add: OK"
 
 echo ""
+echo "----- 5. git clone https:// (libgit2 + OpenSSL HTTPS) -----"
+# The whole reason libgit2 is built with USE_HTTPS=ON pointing at
+# CPython's bundled libssl.a/libcrypto.a is so that this command works.
+# If OpenSSL was misconfigured at link time, this is where we find out.
+# Cloning octocat/Hello-World — GitHub's canonical "tiny test repo",
+# 2 commits, ~1 KB of history, owned by GitHub themselves so the URL
+# is as stable as github.com itself.
+rm -rf "$HOME/clonetest"
+CLONE_OUT=$(git clone https://github.com/octocat/Hello-World "$HOME/clonetest" 2>&1)
+echo "$CLONE_OUT"
+if [ ! -d "$HOME/clonetest/.git" ]; then
+    echo "FAIL git clone did not produce a .git dir"
+    exit 24
+fi
+if ! ls "$HOME/clonetest/" | grep -qiE 'readme'; then
+    echo "FAIL clone target has no README:"
+    ls -la "$HOME/clonetest/" | head
+    exit 24
+fi
+echo "clone: OK (HTTPS via OpenSSL works)"
+
+echo ""
 echo "ALL_TESTS_PASSED"

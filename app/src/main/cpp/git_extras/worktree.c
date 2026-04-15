@@ -93,13 +93,34 @@ static int cmd_add(git_repository *repo, int argc, char **argv)
 
 static int cmd_remove(git_repository *repo, int argc, char **argv)
 {
-	if (argc < 1) {
-		fprintf(stderr, "usage: git worktree remove <name>\n");
-		return -1;
+	int force = 0;
+	const char *name = NULL;
+	git_worktree *wt = NULL;
+	git_repository *wt_repo = NULL;
+	git_status_list *status = NULL;
+	git_status_options stat_opts = GIT_STATUS_OPTIONS_INIT;
+	git_worktree_prune_options prune_opts = GIT_WORKTREE_PRUNE_OPTIONS_INIT;
+	int err = -1;
+	size_t entries;
+
+	for (int i = 0; i < argc; i++) {
+		if (strcmp(argv[i], "--force") == 0 || strcmp(argv[i], "-f") == 0) {
+			force = 1;
+		} else if (argv[i][0] == '-') {
+			fprintf(stderr, "worktree remove: unknown flag '%s'\n", argv[i]);
+			return -1;
+		} else if (name == NULL) {
+			name = argv[i];
+		} else {
+			fprintf(stderr, "worktree remove: too many arguments\n");
+			return -1;
+		}
 	}
 
-	const char *name = argv[0];
-	git_worktree *wt = NULL;
+	if (name == NULL) {
+		fprintf(stderr, "usage: git worktree remove [--force] <name>\n");
+		return -1;
+	}
 
 	if (git_worktree_lookup(&wt, repo, name) != 0) {
 		fprintf(stderr, "worktree remove: '%s' not found: %s\n",
@@ -107,10 +128,54 @@ static int cmd_remove(git_repository *repo, int argc, char **argv)
 		return -1;
 	}
 
-	git_worktree_prune_options opts = GIT_WORKTREE_PRUNE_OPTIONS_INIT;
-	opts.flags = GIT_WORKTREE_PRUNE_VALID | GIT_WORKTREE_PRUNE_WORKING_TREE;
+	/* Refuse to delete a worktree with uncommitted modifications or
+	 * untracked files unless --force is given. Real git's `worktree
+	 * remove` does the same check; without it we'd silently nuke
+	 * user work.
+	 *
+	 * We open the worktree as its own git_repository, run a status
+	 * scan over the index + workdir, and bail if any entries come
+	 * back. We deliberately don't include ignored files (build
+	 * artifacts etc.) — that would be too aggressive and doesn't
+	 * match real git's behavior.
+	 */
+	if (!force) {
+		if (git_repository_open_from_worktree(&wt_repo, wt) < 0) {
+			fprintf(stderr, "worktree remove: cannot open worktree '%s' as a repo: %s\n",
+				name,
+				git_error_last() ? git_error_last()->message : "?");
+			goto cleanup;
+		}
 
-	int err = git_worktree_prune(wt, &opts);
+		stat_opts.show = GIT_STATUS_SHOW_INDEX_AND_WORKDIR;
+		stat_opts.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED |
+		                  GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS;
+
+		if (git_status_list_new(&status, wt_repo, &stat_opts) < 0) {
+			fprintf(stderr, "worktree remove: cannot read status: %s\n",
+				git_error_last() ? git_error_last()->message : "?");
+			goto cleanup;
+		}
+
+		entries = git_status_list_entrycount(status);
+		if (entries > 0) {
+			fprintf(stderr,
+				"worktree remove: '%s' has %" PRIuZ " modified or untracked file(s).\n"
+				"To remove anyway, run: git worktree remove --force %s\n",
+				name, entries, name);
+			err = -1;
+			goto cleanup;
+		}
+	}
+
+	/* GIT_WORKTREE_PRUNE_VALID overrides the default `is_prunable`
+	 * gate (a valid worktree is normally not prunable). We've
+	 * already done our own dirty-state check above (or the user
+	 * passed --force), so it's safe to force the prune here.
+	 * GIT_WORKTREE_PRUNE_WORKING_TREE deletes the on-disk dir.
+	 */
+	prune_opts.flags = GIT_WORKTREE_PRUNE_VALID | GIT_WORKTREE_PRUNE_WORKING_TREE;
+	err = git_worktree_prune(wt, &prune_opts);
 	if (err < 0) {
 		fprintf(stderr, "worktree remove failed: %s\n",
 			git_error_last() ? git_error_last()->message : "?");
@@ -118,7 +183,10 @@ static int cmd_remove(git_repository *repo, int argc, char **argv)
 		printf("Removed worktree '%s'\n", name);
 	}
 
-	git_worktree_free(wt);
+cleanup:
+	if (status) git_status_list_free(status);
+	if (wt_repo) git_repository_free(wt_repo);
+	if (wt) git_worktree_free(wt);
 	return err;
 }
 
