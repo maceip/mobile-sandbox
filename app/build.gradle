@@ -99,6 +99,33 @@ android {
         }
     }
 
+    // Force Android to extract our bundled .so files to disk at install
+    // time, instead of loading them directly from inside the APK zip.
+    //
+    // With AGP 8's default (useLegacyPackaging=false / extractNativeLibs
+    // =false), Android leaves the .so files in the APK and loads them
+    // at runtime via `System.loadLibrary` + android_dlopen_ext, which
+    // understands APK-internal paths. That works for JNI libraries
+    // loaded from the app's own Java/Kotlin code, but it BREAKS the
+    // standalone PIE executables we ship (python3, node, git, bash,
+    // busybox) because they're launched via ProcessBuilder and use the
+    // regular /system/bin/linker64, which cannot see inside an APK. The
+    // terminal's `python3` needs to dlopen libpython3.14.so from the
+    // filesystem at runtime via LD_LIBRARY_PATH, and that requires the
+    // file to physically exist in nativeLibraryDir.
+    //
+    // Setting useLegacyPackaging = true makes AGP emit
+    // `android:extractNativeLibs="true"` in the merged manifest, which
+    // tells the package installer to extract lib/<abi>/*.so into
+    // /data/app/<hash>/lib/<arch>/ on install. Confirmed via AWS Device
+    // Farm run #3 — without this, /data/app/<hash>/lib/arm64/ is empty
+    // and python3 has nothing to dlopen.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
