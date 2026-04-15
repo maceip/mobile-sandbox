@@ -90,8 +90,78 @@ jobs:
           name: cory-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
-  release:
+
+  # Real-device smoke test on AWS Device Farm. Installs the APK on the
+  # Top Devices pool (currently Pixel 9, Pixel 9 Pro XL, Galaxy A36,
+  # Galaxy S24+, Galaxy Tab S9), launches the main activity, and
+  # exercises node, python3, git, git worktree inside the app sandbox
+  # via `adb shell run-as com.cory.app sh`. The runner in
+  # scripts/devicefarm/run.py parses the Test spec output artifact
+  # from every job and exits 0 only if every device saw the
+  # ALL_TESTS_PASSED sentinel. ~2-3 min total, ~$1 per push.
+  #
+  # Skipped (not failed) if the AWS secrets are not configured on the
+  # repo, so forks/first-time pushes still get a build + release path.
+  smoke-test:
     needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      status: ${{ steps.run.outputs.status }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for AWS secrets
+        id: have-aws
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        run: |
+          if [ -n "$AWS_ACCESS_KEY_ID" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::AWS secrets missing; Device Farm smoke test will be skipped. Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, DEVICEFARM_PROJECT_ARN, DEVICEFARM_POOL_ARN as repo secrets to enable it."
+          fi
+
+      - name: Download APK artifact
+        if: steps.have-aws.outputs.have == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: cory-apk
+          path: ./
+
+      - name: Set up Python
+        if: steps.have-aws.outputs.have == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install boto3
+        if: steps.have-aws.outputs.have == 'true'
+        run: pip install --quiet boto3
+
+      - name: Run Device Farm smoke test
+        id: run
+        if: steps.have-aws.outputs.have == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-west-2
+          DEVICEFARM_PROJECT_ARN: ${{ secrets.DEVICEFARM_PROJECT_ARN }}
+          DEVICEFARM_POOL_ARN: ${{ secrets.DEVICEFARM_POOL_ARN }}
+          APK_PATH: ./app-debug.apk
+        run: |
+          python3 scripts/devicefarm/run.py
+          echo "status=passed" >> "$GITHUB_OUTPUT"
+
+      - name: Record skip
+        if: steps.have-aws.outputs.have != 'true'
+        id: skip
+        run: echo "status=skipped" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: [build, smoke-test]
     if: success() && github.event_name == 'push'
     runs-on: ubuntu-latest
 

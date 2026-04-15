@@ -36,6 +36,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 try:
@@ -43,6 +44,42 @@ try:
 except ImportError:
     sys.stderr.write("ERROR: boto3 not installed. pip install boto3\n")
     sys.exit(2)
+
+
+def _http_get_with_retry(url: str, tries: int = 5, timeout: int = 30) -> bytes:
+    """GET with exponential backoff for transient S3 5xx / network errors.
+
+    Device Farm's signed S3 URLs sporadically return 503 Service Unavailable
+    under load; we've seen it maybe 1 in 10 times. Retry with 1s/2s/4s/8s/16s
+    backoff before giving up.
+    """
+    last_err: Exception | None = None
+    for i in range(tries):
+        try:
+            with urlopen(url, timeout=timeout) as r:
+                return r.read()
+        except HTTPError as e:
+            last_err = e
+            if e.code in (429, 500, 502, 503, 504) and i < tries - 1:
+                delay = 2 ** i
+                sys.stderr.write(
+                    f"[df-smoke] HTTP {e.code} on fetch, retry {i + 1}/{tries} in {delay}s\n"
+                )
+                time.sleep(delay)
+                continue
+            raise
+        except URLError as e:
+            last_err = e
+            if i < tries - 1:
+                delay = 2 ** i
+                sys.stderr.write(
+                    f"[df-smoke] URL error {e}, retry {i + 1}/{tries} in {delay}s\n"
+                )
+                time.sleep(delay)
+                continue
+            raise
+    # unreachable
+    raise RuntimeError(f"_http_get_with_retry exhausted: {last_err}")
 
 
 HERE = Path(__file__).resolve().parent
@@ -216,8 +253,7 @@ def fetch_first_job_output(df, run_arn: str) -> tuple[str, dict]:
         )
         if tso is None:
             continue
-        with urlopen(tso["url"]) as r:
-            text = r.read().decode("utf-8", errors="replace")
+        text = _http_get_with_retry(tso["url"]).decode("utf-8", errors="replace")
         per_device[device]["output"] = text
         if not output_text:
             output_text = text
