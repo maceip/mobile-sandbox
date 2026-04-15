@@ -61,8 +61,6 @@ android {
                 "META-INF/NOTICE.txt"
             )
         }
-    }
-    packaging {
         jniLibs {
             useLegacyPackaging = true
         }

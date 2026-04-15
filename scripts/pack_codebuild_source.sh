@@ -19,6 +19,7 @@ EXCL=(
   '--exclude=build/'
   '--exclude=app/build/'
   '--exclude=app/.cxx/'
+  '--exclude=terminal/.cxx/'
   '--exclude=*/build/'
   '--exclude=.gradle/'
   '--exclude=gradle/caches/'
