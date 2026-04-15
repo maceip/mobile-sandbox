@@ -17,6 +17,7 @@ __pycache__/
 # Android / Gradle / CMake build output
 build/
 app/.cxx/
+terminal/.cxx/
 app/build/
 out/
 cb-out/
