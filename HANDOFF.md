@@ -115,7 +115,7 @@ This is the main file-state asymmetry right now.
 - ripgrep:
   - `/home/pooppoop/ndk-samples/Cory/third_party/ripgrep/target/aarch64-linux-android/release/rg|29267160|2026-03-26 22:11:45 +0100`
 - Rust:
-  - `/home/pooppoop/ndk-samples/Cory/rust/cory_rust/target/aarch64-linux-android/debug/libcory_rust.a|21690526|2026-03-28 10:47:34 +0100`
+  - `/home/pooppoop/ndk-samples/Cory/rust/cory_rust/target/aarch64-linux-android/release/libcory_rust.a|21690526|2026-03-28 10:47:34 +0100`
 - Python include:
   - `/home/pooppoop/ndk-samples/Cory/third_party/python-android/prefix/include/python3.14/Python.h|4399|2026-02-03 16:39:01 +0100`
 
@@ -140,7 +140,7 @@ Missing locally:
 - ripgrep:
   - `/home/cory/ndk-samples/Cory/third_party/ripgrep/target/aarch64-linux-android/release/rg|29267160|2026-03-26 21:11:45 +0000`
 - Rust:
-  - `/home/cory/ndk-samples/Cory/rust/cory_rust/target/aarch64-linux-android/debug/libcory_rust.a|21850416|2026-03-27 16:22:14 +0000`
+  - `/home/cory/ndk-samples/Cory/rust/cory_rust/target/aarch64-linux-android/release/libcory_rust.a|21850416|2026-03-27 16:22:14 +0000`
 - Python include:
   - `/home/cory/ndk-samples/Cory/third_party/python-android/prefix/include/python3.14/Python.h|4399|2026-02-03 15:39:01 +0000`
 

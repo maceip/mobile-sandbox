@@ -154,9 +154,9 @@ The full remote build also produced `node`, `node_mksnapshot`, and `cctest`,
 but `Cory` currently wires only the embeddable static library target.
 
 `Cory/rust/cory_rust` is a minimal Rust Android `staticlib` crate.
-`app/build.gradle` now builds it with `cargo ndk -t arm64-v8a --platform 24 build`,
+`app/build.gradle` now builds it with `cargo ndk -t arm64-v8a --platform 24 build --release`,
 and `app/src/main/cpp/CMakeLists.txt` imports
-`rust/cory_rust/target/aarch64-linux-android/debug/libcory_rust.a` as
+`rust/cory_rust/target/aarch64-linux-android/release/libcory_rust.a` as
 `cory_librust`.
 
 Order files are text files containing symbols representing functions names.

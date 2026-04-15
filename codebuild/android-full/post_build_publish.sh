@@ -44,10 +44,10 @@ sync_public() {
   if [ -f "$ROOT/third_party/ripgrep/target/aarch64-linux-android/release/rg" ]; then
     cp -a "$ROOT/third_party/ripgrep/target/aarch64-linux-android/release/rg" "$STAGE/native/"
   fi
-  if [ -f "$ROOT/rust/cory_rust/target/aarch64-linux-android/debug/libcory_rust.a" ]; then
-    cp -a "$ROOT/rust/cory_rust/target/aarch64-linux-android/debug/libcory_rust.a" "$STAGE/native/"
+  if [ -f "$ROOT/rust/cory_rust/target/aarch64-linux-android/release/libcory_rust.a" ]; then
+    cp -a "$ROOT/rust/cory_rust/target/aarch64-linux-android/release/libcory_rust.a" "$STAGE/native/"
   fi
-  for f in "$ROOT"/rust/cory_rust/target/aarch64-linux-android/debug/deps/*.so; do
+  for f in "$ROOT"/rust/cory_rust/target/aarch64-linux-android/release/deps/*.so; do
     cp -a "$f" "$STAGE/native/" || true
   done
   shopt -u nullglob
@@ -77,8 +77,8 @@ sync_prebuilt_latest() {
   if [ -f "$ROOT/third_party/ripgrep/target/aarch64-linux-android/release/rg" ]; then
     tar -C "$ROOT" -czf "$prebuilt_stage/ripgrep-arm64-v8a.tgz" third_party/ripgrep/target/aarch64-linux-android/release
   fi
-  if [ -d "$ROOT/rust/cory_rust/target/aarch64-linux-android/debug" ]; then
-    tar -C "$ROOT" -czf "$prebuilt_stage/rust-cory_rust-arm64-debug.tgz" rust/cory_rust/target/aarch64-linux-android/debug
+  if [ -d "$ROOT/rust/cory_rust/target/aarch64-linux-android/release" ]; then
+    tar -C "$ROOT" -czf "$prebuilt_stage/rust-cory_rust-arm64-release.tgz" rust/cory_rust/target/aarch64-linux-android/release
   fi
 
   if compgen -G "$prebuilt_stage/*.tgz" > /dev/null; then

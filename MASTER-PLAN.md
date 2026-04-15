@@ -88,7 +88,7 @@ S3: s3://cory-android-ci-manual-publicartifactsbucket-kmzlqxd3q1il/
     ├── python-android-prefix.tgz       → libpython3.14.so
     ├── busybox-arm64-v8a.tgz
     ├── ripgrep-arm64-v8a.tgz
-    ├── rust-cory_rust-arm64-debug.tgz
+    ├── rust-cory_rust-arm64-release.tgz
     └── shell-deps-arm64-v8a.tgz        → libbash.so, libbusybox.so
         │
         ▼ scripts/fetch_prebuilt_assets.py

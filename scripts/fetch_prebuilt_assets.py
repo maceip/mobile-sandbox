@@ -22,7 +22,7 @@ ASSET_ARCHIVES = {
     "python": "python-android-prefix.tgz",
     "busybox": "busybox-arm64-v8a.tgz",
     "ripgrep": "ripgrep-arm64-v8a.tgz",
-    "rust": "rust-cory_rust-arm64-debug.tgz",
+    "rust": "rust-cory_rust-arm64-release.tgz",
     "shell-deps": "shell-deps-arm64-v8a.tgz",
 }
 

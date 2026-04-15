@@ -116,19 +116,19 @@ Status:
 
 Required file:
 
-- `rust/cory_rust/target/aarch64-linux-android/debug/libcory_rust.a`
+- `rust/cory_rust/target/aarch64-linux-android/release/libcory_rust.a`
 
 Status:
 
 - Local:
-  - `/home/pooppoop/ndk-samples/Cory/rust/cory_rust/target/aarch64-linux-android/debug/libcory_rust.a|21690526|2026-03-28 10:47:34 +0100`
+  - `/home/pooppoop/ndk-samples/Cory/rust/cory_rust/target/aarch64-linux-android/release/libcory_rust.a|21690526|2026-03-28 10:47:34 +0100`
 - Remote:
-  - `/home/cory/ndk-samples/Cory/rust/cory_rust/target/aarch64-linux-android/debug/libcory_rust.a|21850416|2026-03-27 16:22:14 +0000`
+  - `/home/cory/ndk-samples/Cory/rust/cory_rust/target/aarch64-linux-android/release/libcory_rust.a|21850416|2026-03-27 16:22:14 +0000`
 
 Notes:
 
-- Both exist.
-- The sizes differ.
+- Both exist; local vs remote sizes differ.
+- Pipe-delimited byte counts are snapshots; re-measure after a fresh `cargo ndk ... build --release` if you need exact release sizes.
 - Treat the remote artifact as potentially stale or rebuilt from a different local state.
 
 ### Node runtime binary
