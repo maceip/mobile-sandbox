@@ -137,11 +137,42 @@ android {
 
     buildTypes {
         debug {
-            packaging {
-                jniLibs {
-                    keepDebugSymbols += '**/*.so'
-                }
-            }
+            // Note: no `packaging.jniLibs.keepDebugSymbols` override
+            // anymore — even debug builds now strip jniLibs.
+        }
+        release {
+            // We ship the release variant from CI (see
+            // .github/workflows/build-apk.yml -> assembleRelease), so
+            // this is the variant that has to actually work end-to-end.
+            //
+            // - debuggable=true is *required* for the Device Farm smoke
+            //   test: it uses `adb shell run-as com.cory.app` to step
+            //   into the app sandbox and invoke node/python/git, and
+            //   run-as is denied on non-debuggable APKs. We pay the
+            //   ~nothing cost of a debuggable manifest flag in exchange
+            //   for keeping the gate honest.
+            // - minifyEnabled=false because R8/Proguard would have to
+            //   be configured with -keep rules for every JNI-referenced
+            //   class in libcory.so / TerminalManager / friends, and a
+            //   missing rule silently breaks the app at runtime. Skip
+            //   the size win until someone wants to write the rules.
+            // - signingConfig=signingConfigs.debug so CI doesn't need
+            //   a real release keystore. The auto-generated debug
+            //   keystore is consistent across CI runs on the same
+            //   runner, which is good enough for our use case (users
+            //   who need to upgrade across keystore rotations have to
+            //   uninstall first, but that's a known limitation).
+            //
+            // Native libs (libcory.so, libpython3.14.so, libbash.so,
+            // libbusybox.so, liblitertlm_jni.so, etc.) get stripped by
+            // AGP automatically because we're not setting
+            // packaging.jniLibs.keepDebugSymbols. CMake-built targets
+            // (libcory.so, the `git` executable from libgit2 examples)
+            // are also built with CMAKE_BUILD_TYPE=Release, so they
+            // get -O2 and no -g.
+            debuggable true
+            minifyEnabled false
+            signingConfig signingConfigs.debug
         }
     }
 }

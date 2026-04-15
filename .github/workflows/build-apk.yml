@@ -78,17 +78,23 @@ jobs:
           echo "tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
           echo "Next release: $NEXT_TAG"
 
-      - name: Build APK
+      - name: Build APK (release variant)
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          # We build :app:assembleRelease (not :app:assembleDebug) so
+          # AGP strips all jniLibs and CMake builds with -O2/-O3. The
+          # release buildType in app/build.gradle is configured with
+          # debuggable=true + signingConfigs.debug so the resulting APK
+          # is still installable + run-as-able for the Device Farm
+          # smoke test downstream.
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: cory-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/release/app-release.apk
           retention-days: 30
 
   # Real-device smoke test on AWS Device Farm. Installs the APK on the
@@ -150,7 +156,7 @@ jobs:
           AWS_REGION: us-west-2
           DEVICEFARM_PROJECT_ARN: ${{ secrets.DEVICEFARM_PROJECT_ARN }}
           DEVICEFARM_POOL_ARN: ${{ secrets.DEVICEFARM_POOL_ARN }}
-          APK_PATH: ./app-debug.apk
+          APK_PATH: ./app-release.apk
         run: |
           python3 scripts/devicefarm/run.py
           echo "status=passed" >> "$GITHUB_OUTPUT"
@@ -181,7 +187,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ needs.build.outputs.next-tag }}" \
-            app-debug.apk \
+            app-release.apk \
             --title "${{ needs.build.outputs.next-tag }}" \
             --generate-notes \
             --latest
