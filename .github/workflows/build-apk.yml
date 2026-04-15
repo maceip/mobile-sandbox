@@ -13,6 +13,17 @@ on:
 permissions:
   contents: write
 
+# Serialize CI runs on the same ref so two concurrent runs don't race
+# on "compute next semver tag". Without this, run #26 + run #27 both
+# computed NEXT_TAG=v0.0.11 from the same baseline (v0.0.10), run #26
+# pushed it first, run #27 died trying to push the same tag. Letting
+# previous in-progress runs finish (cancel-in-progress: false) is the
+# right call here because we always want a tag cut for every commit
+# that lands on main.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -261,8 +272,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ needs.build.outputs.next-tag }}" \
+          TAG='${{ needs.build.outputs.next-tag }}'
+          # Idempotent on tag-already-exists. Even with the `concurrency`
+          # serialization above, we want this to be safe against retries
+          # (manual workflow_dispatch reruns, GH-side action retries, etc).
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists — skipping create, treating as success"
+            exit 0
+          fi
+          gh release create "$TAG" \
             app-release.apk \
-            --title "${{ needs.build.outputs.next-tag }}" \
+            --title "$TAG" \
             --generate-notes \
             --latest
