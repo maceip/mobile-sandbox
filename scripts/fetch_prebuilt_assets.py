@@ -65,6 +65,27 @@ def log(message: str) -> None:
     print(f"[fetch-prebuilt-assets] {message}")
 
 
+def repo_relative_member(name: str) -> Path:
+    return Path(name.lstrip("/"))
+
+
+def validate_member_path(destination: Path, relative_path: Path) -> Path:
+    destination_resolved = destination.resolve()
+    target_path = (destination / relative_path).resolve()
+    if destination_resolved not in target_path.parents and target_path != destination_resolved:
+        raise FetchError(f"refusing to extract unsafe archive member: {relative_path}")
+    return target_path
+
+
+def rewrite_legacy_python_member_path(member_name: str) -> Path:
+    relative = repo_relative_member(member_name)
+    if not relative.parts:
+        return relative
+    if relative.parts[0] != "prefix":
+        return relative
+    return Path("third_party/python-android") / relative
+
+
 def public_asset_url(*, bucket: str, prefix: str, region: str, archive_name: str) -> str:
     clean_prefix = prefix.strip("/")
     return f"https://{bucket}.s3.{region}.amazonaws.com/{clean_prefix}/{archive_name}"
@@ -90,7 +111,12 @@ def download(url: str, destination: Path, *, optional: bool = False) -> bool:
         raise FetchError(f"download failed: {url}: {exc.reason}") from exc
 
 
-def safe_extract(archive_path: Path, destination: Path) -> None:
+def safe_extract(
+    archive_path: Path,
+    destination: Path,
+    *,
+    legacy_prefix_root: Path | None = None,
+) -> None:
     """Extract a gzip tarball produced with `tar -C <repo-root> ...`.
 
     Member paths are repo-relative (e.g. ``third_party/...``), so *destination*
@@ -98,10 +124,50 @@ def safe_extract(archive_path: Path, destination: Path) -> None:
     """
     with tarfile.open(archive_path, "r:gz") as archive:
         for member in archive.getmembers():
-            member_path = (destination / member.name).resolve()
-            if destination.resolve() not in member_path.parents and member_path != destination.resolve():
-                raise FetchError(f"refusing to extract unsafe archive member: {member.name}")
-        archive.extractall(destination)
+            relative_path = repo_relative_member(member.name)
+            if legacy_prefix_root and relative_path.parts[:1] == ("prefix",):
+                relative_path = legacy_prefix_root / relative_path
+            validate_member_path(destination, relative_path)
+
+        if legacy_prefix_root is None:
+            archive.extractall(destination)
+            return
+
+        for member in archive.getmembers():
+            rewritten_path = rewrite_legacy_python_member_path(member.name)
+            validate_member_path(destination, rewritten_path)
+            if member.isdir():
+                (destination / rewritten_path).mkdir(parents=True, exist_ok=True)
+                continue
+            if member.issym():
+                target_path = destination / rewritten_path
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                if target_path.exists() or target_path.is_symlink():
+                    target_path.unlink()
+                target_path.symlink_to(member.linkname)
+                continue
+            if member.islnk():
+                link_target = rewrite_legacy_python_member_path(member.linkname)
+                validate_member_path(destination, link_target)
+                target_path = destination / rewritten_path
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                if target_path.exists() or target_path.is_symlink():
+                    target_path.unlink()
+                os.link(destination / link_target, target_path)
+                continue
+
+            extracted = archive.extractfile(member)
+            if extracted is None:
+                continue
+
+            target_path = destination / rewritten_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with extracted, target_path.open("wb") as output:
+                shutil.copyfileobj(extracted, output)
+
+            mode = member.mode & 0o777
+            if mode:
+                target_path.chmod(mode)
 
 
 def ensure_rust_release_staticlib_from_debug(root: Path) -> None:
@@ -165,7 +231,14 @@ def fetch_asset(
     )
     if not download(url, archive_path, optional=optional):
         return  # optional 404, already logged
-    safe_extract(archive_path, root)
+    if name == "python":
+        safe_extract(
+            archive_path,
+            root,
+            legacy_prefix_root=Path("third_party/python-android"),
+        )
+    else:
+        safe_extract(archive_path, root)
     log(f"restored {name} from {url}")
 
 
