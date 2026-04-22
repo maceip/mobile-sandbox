@@ -40,10 +40,19 @@ object CoryTerminalRuntime {
         "git"
     )
 
+    private val NATIVE_TOOL_BINARIES = mapOf(
+        "node" to "libnode.so",
+        "python3" to "libpython3.so",
+        "python3.14" to "libpython3.so",
+        "rg" to "librg.so",
+        "git" to "libgit.so",
+        "busybox" to "libbusybox.so",
+    )
+
     fun ensureReady(context: Context) {
         TerminalBootstrap.ensureEnvironment(context)
         syncBundledRuntime(context.assets, context.filesDir)
-        linkBundledTools(context.filesDir)
+        linkBundledTools(context.filesDir, context.applicationInfo.nativeLibraryDir)
     }
 
     private fun syncBundledRuntime(assets: AssetManager, filesDir: File) {
@@ -88,7 +97,7 @@ object CoryTerminalRuntime {
         }
     }
 
-    private fun linkBundledTools(filesDir: File) {
+    private fun linkBundledTools(filesDir: File, nativeLibDir: String) {
         val runtimeRoot = File(filesDir, "python")
         val bundledBin = File(runtimeRoot, "bin")
         val bundledLib = File(runtimeRoot, "lib")
@@ -105,13 +114,24 @@ object CoryTerminalRuntime {
             missingTools += ASSET_TOOL_BINARIES
         } else {
             for (tool in ASSET_TOOL_BINARIES) {
+                val target = File(usrBin, tool)
+                val nativeName = NATIVE_TOOL_BINARIES[tool]
+                if (nativeName != null) {
+                    val nativeSource = File(nativeLibDir, nativeName)
+                    if (nativeSource.exists()) {
+                        // Device Farm SELinux can deny direct exec() from app-private asset paths
+                        // like files/python/bin/*. Prefer nativeLibraryDir when available.
+                        symlinkOrCopy(nativeSource, target)
+                        continue
+                    }
+                }
+
                 val source = File(bundledBin, tool)
                 if (!source.exists()) {
                     Log.w(TAG, "asset binary missing: $tool")
                     missingTools += tool
                     continue
                 }
-                val target = File(usrBin, tool)
                 symlinkOrCopy(source, target)
             }
 
@@ -123,7 +143,7 @@ object CoryTerminalRuntime {
         }
 
         // Shell wrappers for pip and npm (these are cheap to rewrite every launch)
-        writePipWrappers(usrBin)
+        writePipWrappers(usrBin, bundledLib)
         writeNpmWrappers(usrBin, bundledLib)
 
         // Append missing-tool warnings to the bootstrap status file so the
@@ -132,28 +152,39 @@ object CoryTerminalRuntime {
         appendMissingToolWarnings(homeDir, missingTools)
     }
 
-    private fun writePipWrappers(usrBin: File) {
+    private fun writePipWrappers(usrBin: File, bundledLib: File) {
         val python3 = File(usrBin, "python3")
         if (!python3.exists()) return  // pip is useless without python3
 
-        val pip = File(usrBin, "pip")
+        val pipModule = File(bundledLib, "python3.14/ensurepip/_bundled/pip-25.1.1-py3-none-any.whl")
+        val setuputilsModule = File(bundledLib, "python3.14/_distutils_hack/__init__.py")
+
+        val pip = File(usrBin, "pip.sh")
         writeShellWrapper(
             pip,
             """
             |#!/system/bin/sh
             |PYTHON_BIN="${python3.absolutePath}"
+            |PYTHONPIP_PATH="${pipModule.absolutePath}"
+            |PYTHONSETUPTOOLS_PATH="${setuputilsModule.absolutePath}"
+            |if [ -d "${bundledLib.absolutePath}/python3.14/lib-dynload" ]; then
+            |  export PYTHONPATH="${bundledLib.absolutePath}/python3.14/lib-dynload:${'$'}PYTHONPIP_PATH:${'$'}PYTHONSETUPTOOLS_PATH"
+            |else
+            |  export PYTHONPATH="${'$'}PYTHONPIP_PATH:${'$'}PYTHONSETUPTOOLS_PATH"
+            |fi
             |if ! "${'$'}PYTHON_BIN" -c "import pip" >/dev/null 2>&1; then
             |  "${'$'}PYTHON_BIN" -m ensurepip --upgrade || exit ${'$'}?
             |fi
             |exec "${'$'}PYTHON_BIN" -m pip "${'$'}@"
             """.trimMargin()
         )
-        writeShellWrapper(
+        writeCommandShim(
+            File(usrBin, "pip"),
+            pip,
+        )
+        writeCommandShim(
             File(usrBin, "pip3"),
-            """
-            |#!/system/bin/sh
-            |exec "${pip.absolutePath}" "${'$'}@"
-            """.trimMargin()
+            pip,
         )
     }
 
@@ -166,21 +197,23 @@ object CoryTerminalRuntime {
 
         if (npmCli.exists()) {
             writeShellWrapper(
-                File(usrBin, "npm"),
+                File(usrBin, "npm.sh"),
                 """
                 |#!/system/bin/sh
                 |exec "${node.absolutePath}" "${npmCli.absolutePath}" "${'$'}@"
                 """.trimMargin()
             )
+            writeCommandShim(File(usrBin, "npm"), File(usrBin, "npm.sh"))
         }
         if (npxCli.exists()) {
             writeShellWrapper(
-                File(usrBin, "npx"),
+                File(usrBin, "npx.sh"),
                 """
                 |#!/system/bin/sh
                 |exec "${node.absolutePath}" "${npxCli.absolutePath}" "${'$'}@"
                 """.trimMargin()
             )
+            writeCommandShim(File(usrBin, "npx"), File(usrBin, "npx.sh"))
         }
     }
 
@@ -231,6 +264,16 @@ object CoryTerminalRuntime {
         target.parentFile?.mkdirs()
         target.writeText(content.trimEnd() + "\n")
         target.setExecutable(true, true)
+    }
+
+    private fun writeCommandShim(target: File, script: File) {
+        writeShellWrapper(
+            target,
+            """
+            |#!/system/bin/sh
+            |exec /system/bin/sh "${script.absolutePath}" "${'$'}@"
+            """.trimMargin()
+        )
     }
 
     private fun File.readTextOrNull(): String? = if (exists()) readText() else null

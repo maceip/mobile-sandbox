@@ -287,7 +287,10 @@ tasks.register('preparePythonAssets', Copy) {
         into('site-packages') {
             from('src/main/python')
         }
-        rename(/.*(\.gz|-)/, '$0-')
+        // Only escape trailing ".gz" (or already-trailing "-") for assets packaging.
+        // Matching any "-" in the filename corrupts python extension module names
+        // (e.g. linux-android -> linux--android), which breaks imports like _sqlite3.
+        rename(/.*(\.gz|-)$/, '$0-')
     }
 
     into("python/lib/node_modules/npm") {
@@ -434,6 +437,20 @@ tasks.register('prepareNativeLibs', Copy) {
         include('*.so')
     }
 
+    // Package executable toolchain binaries as lib*.so so Android extracts
+    // them into nativeLibraryDir where SELinux allows execution.
+    into("${coryPythonAbi}") {
+        from(coryNodeBinary) {
+            rename { 'libnode.so' }
+        }
+        from(coryPythonVersionedBinary) {
+            rename { 'libpython3.so' }
+        }
+        from(coryRipgrepBinary) {
+            rename { 'librg.so' }
+        }
+    }
+
     doLast {
         def hostDir =
                 org.gradle.internal.os.OperatingSystem.current().isWindows() ? 'windows-x86_64' :
@@ -456,28 +473,14 @@ tasks.named('preBuild').configure {
     dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'buildRustArm64', 'preparePythonAssets', 'prepareNativeLibs')
 }
 
-// CMake writes the `git` binary directly into
-// ${coryGeneratedPythonAssetsDir}/python/bin/git via its RUNTIME_OUTPUT_DIRECTORY
-// + OUTPUT_NAME target properties (see app/src/main/cpp/CMakeLists.txt).
-//
-// That dir is already registered as `sourceSets.main.assets.srcDir`, so
-// mergeAssets would scan it naturally. BUT: AGP does NOT automatically
-// make mergeAssets depend on the native build (assets and native libs
-// are independent in AGP's model), so mergeAssets can race ahead of
-// CMake and package an empty bin/ dir.
-//
-// Fix: make each mergeAssets task depend only on its own variant's CMake
-// producers. Depending on every `buildCMake*` task causes both debug and
-// release native tasks to run during `assembleDebug`, and both tasks write
-// `python/bin/git` into the same generated assets directory, which then
-// surfaces as a duplicate resource in mergeDebugAssets.
+// CMake writes the `git` executable into generated jniLibs as libgit.so.
+// Keep mergeAssets tied to variant-specific CMake tasks so asset generation
+// and native generation stay in lockstep and never race.
 tasks.matching { it.name == 'mergeDebugAssets' }.configureEach {
     dependsOn(tasks.matching { it.name.startsWith('buildCMakeDebug') })
 }
 tasks.matching { it.name == 'mergeReleaseAssets' }.configureEach {
-    dependsOn(tasks.matching {
-        it.name.startsWith('buildCMakeRelease') || it.name.startsWith('buildCMakeRelWithDebInfo')
-    })
+    dependsOn(tasks.matching { it.name.startsWith('buildCMakeRelWithDebInfo') })
 }
 
 // USB "connected" instrumentation is not part of the supported local workflow; release smoke runs on
