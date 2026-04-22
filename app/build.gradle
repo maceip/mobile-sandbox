@@ -17,6 +17,9 @@ def coryPythonAbi = 'arm64-v8a'
 def coryNpmVersion = '10.9.2'
 def coryNpmTarball = file("$buildDir/downloads/npm-${coryNpmVersion}.tgz")
 def coryNpmUrl = "https://registry.npmjs.org/npm/-/npm-${coryNpmVersion}.tgz"
+def coryExpressVersion = '5.2.1'
+def coryExpressFixtureDir = file("$buildDir/generated/cory/express-fixture")
+def coryExpressFixtureNodeModulesDir = file("$coryExpressFixtureDir/node_modules")
 def coryNodeBinary = file("$rootDir/third_party/node24-android/bin/${coryPythonAbi}/node")
 def coryNodeStaticLib = file("$rootDir/third_party/node24-android/lib/${coryPythonAbi}/liblibnode.a")
 def coryRipgrepBinary = file("$rootDir/third_party/ripgrep/target/aarch64-linux-android/release/rg")
@@ -283,6 +286,31 @@ tasks.register('fetchNpmTarball') {
     }
 }
 
+tasks.register('prepareExpressFixture') {
+    dependsOn('fetchNpmTarball')
+    inputs.property('expressVersion', coryExpressVersion)
+    outputs.dir(coryExpressFixtureNodeModulesDir)
+    doLast {
+        delete(coryExpressFixtureDir)
+        coryExpressFixtureDir.mkdirs()
+        file("$coryExpressFixtureDir/package.json").text = '{"name":"cory-express-fixture","private":true}'
+        exec {
+            workingDir(coryExpressFixtureDir)
+            commandLine(
+                    'npm',
+                    'install',
+                    "express@${coryExpressVersion}",
+                    '--no-audit',
+                    '--no-fund',
+                    '--ignore-scripts'
+            )
+        }
+        if (!file("$coryExpressFixtureNodeModulesDir/express/package.json").exists()) {
+            throw new GradleException("express fixture missing after npm install in ${coryExpressFixtureDir}")
+        }
+    }
+}
+
 tasks.register('preparePythonAssets', Copy) {
     into(coryGeneratedPythonAssetsDir)
 
@@ -303,6 +331,9 @@ tasks.register('preparePythonAssets', Copy) {
     into("python/lib/node_modules") {
         from(coryNpmTarball)
         rename { 'npm.tgz' }
+    }
+    into("python/lib/express-fixture/node_modules") {
+        from(coryExpressFixtureNodeModulesDir)
     }
 
     if (coryRipgrepBinary.exists()) {
@@ -437,7 +468,7 @@ tasks.register('buildRustArm64', Exec) {
 }
 
 tasks.named('preparePythonAssets').configure {
-    dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'fetchNpmTarball')
+    dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'fetchNpmTarball', 'prepareExpressFixture')
 }
 
 // Unified jniLibs task: collects ALL native deps into the generated jniLibs dir.

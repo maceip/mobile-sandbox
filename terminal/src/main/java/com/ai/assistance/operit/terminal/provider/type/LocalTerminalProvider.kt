@@ -8,7 +8,6 @@ import com.ai.assistance.operit.terminal.TerminalSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -92,21 +91,6 @@ class LocalTerminalProvider(
         // Simple implementation: run via a short-lived shell
         return withContext(Dispatchers.IO) {
             try {
-                // #region agent log
-                appendDebugLog(
-                    hypothesisId = "A",
-                    location = "LocalTerminalProvider.kt:executeHiddenCommand:entry",
-                    message = "Hidden command execution started",
-                    data = mapOf(
-                        "executorKey" to executorKey,
-                        "timeoutMs" to timeoutMs,
-                        "commandLength" to command.length,
-                        "containsNpmCli" to command.contains("npm-cli.js"),
-                    ),
-                )
-                // #endregion
-
-                val env = buildEnvironment()
                 val pb = ProcessBuilder(
                     File(binDir, "bash").absolutePath,
                     "-c",
@@ -115,103 +99,17 @@ class LocalTerminalProvider(
                 pb.directory(homeDir)
                 pb.redirectErrorStream(true)
                 pb.environment().clear()
-                pb.environment().putAll(env)
-
-                // #region agent log
-                appendDebugLog(
-                    hypothesisId = "B",
-                    location = "LocalTerminalProvider.kt:executeHiddenCommand:env",
-                    message = "Hidden command environment snapshot",
-                    data = mapOf(
-                        "PATH" to env["PATH"],
-                        "LD_LIBRARY_PATH" to env["LD_LIBRARY_PATH"],
-                        "HOME" to env["HOME"],
-                        "TMPDIR" to env["TMPDIR"],
-                    ),
-                )
-                // #endregion
-
-                if (command.contains("npm-cli.js")) {
-                    val nodePath = File(binDir, "node")
-                    val npmCliPathRegex = Regex("node\\s+\"([^\"]*npm-cli\\.js)\"")
-                    val npmCliPath = npmCliPathRegex.find(command)?.groupValues?.getOrNull(1)
-                    val npmCliFile = npmCliPath?.let { File(it) }
-                    // #region agent log
-                    appendDebugLog(
-                        hypothesisId = "C",
-                        location = "LocalTerminalProvider.kt:executeHiddenCommand:npmPreflight",
-                        message = "npm command preflight paths",
-                        data = mapOf(
-                            "nodeExists" to nodePath.exists(),
-                            "nodeCanonicalPath" to nodePath.safeCanonicalPath(),
-                            "nodeCanExecute" to nodePath.canExecute(),
-                            "npmCliPath" to npmCliPath,
-                            "npmCliExists" to (npmCliFile?.exists() ?: false),
-                            "npmCliSize" to (npmCliFile?.length() ?: -1L),
-                        ),
-                    )
-                    // #endregion
-                }
+                pb.environment().putAll(buildEnvironment())
 
                 val proc = pb.start()
                 val output = proc.inputStream.bufferedReader(Charsets.UTF_8).readText()
                 val exitCode = proc.waitFor()
-
-                // #region agent log
-                appendDebugLog(
-                    hypothesisId = "D",
-                    location = "LocalTerminalProvider.kt:executeHiddenCommand:exit",
-                    message = "Hidden command finished",
-                    data = mapOf(
-                        "exitCode" to exitCode,
-                        "outputLength" to output.length,
-                        "outputTail" to output.takeLast(600),
-                    ),
-                )
-                // #endregion
-
-                if (exitCode == 139 && command.contains("npm-cli.js")) {
-                    val diag = ProcessBuilder(
-                        File(binDir, "bash").absolutePath,
-                        "-c",
-                        "command -v node; ls -l \"${File(binDir, "node").absolutePath}\"; node -p \"JSON.stringify(process.versions)\"; node -p \"process.execPath\"",
-                    )
-                    diag.directory(homeDir)
-                    diag.redirectErrorStream(true)
-                    diag.environment().clear()
-                    diag.environment().putAll(env)
-                    val diagProc = diag.start()
-                    val diagOutput = diagProc.inputStream.bufferedReader(Charsets.UTF_8).readText()
-                    val diagExit = diagProc.waitFor()
-                    // #region agent log
-                    appendDebugLog(
-                        hypothesisId = "E",
-                        location = "LocalTerminalProvider.kt:executeHiddenCommand:nodeDiag",
-                        message = "Node diagnostic after npm exit 139",
-                        data = mapOf(
-                            "diagExit" to diagExit,
-                            "diagOutputTail" to diagOutput.takeLast(800),
-                        ),
-                    )
-                    // #endregion
-                }
 
                 HiddenExecResult(
                     output = output.trimEnd(),
                     exitCode = exitCode
                 )
             } catch (e: Exception) {
-                // #region agent log
-                appendDebugLog(
-                    hypothesisId = "A",
-                    location = "LocalTerminalProvider.kt:executeHiddenCommand:exception",
-                    message = "Hidden command threw exception",
-                    data = mapOf(
-                        "exceptionType" to e.javaClass.name,
-                        "exceptionMessage" to (e.message ?: ""),
-                    ),
-                )
-                // #endregion
                 Log.e(TAG, "Hidden command failed", e)
                 HiddenExecResult(
                     output = "",
@@ -255,29 +153,5 @@ class LocalTerminalProvider(
             "COLORTERM" to "truecolor",
             "SHELL" to File(binDir, "bash").absolutePath,
         )
-    }
-
-    private fun appendDebugLog(
-        hypothesisId: String,
-        location: String,
-        message: String,
-        data: Map<String, Any?> = emptyMap(),
-    ) {
-        try {
-            val payload = JSONObject()
-                .put("hypothesisId", hypothesisId)
-                .put("location", location)
-                .put("message", message)
-                .put("data", JSONObject(data))
-                .put("timestamp", System.currentTimeMillis())
-            File("/opt/cursor/logs/debug.log").appendText(payload.toString() + "\n")
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun File.safeCanonicalPath(): String = try {
-        canonicalPath
-    } catch (_: Exception) {
-        absolutePath
     }
 }

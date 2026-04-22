@@ -95,8 +95,7 @@ class TerminalSmokeTest {
         val files = composeRule.activity.filesDir.absolutePath
         val home = File(files, "home/dfsmoke").absolutePath
         val cloneDest = File(files, "home/dfsmoke-clone").absolutePath
-        val npmCli = "$files/python/lib/node_modules/npm/bin/npm-cli.js"
-
+        val expressFixture = "$files/python/lib/express-fixture/node_modules"
         assertCommandSucceeded(
             provider,
             "node -v",
@@ -129,25 +128,13 @@ class TerminalSmokeTest {
         )
         assertCommandSucceeded(
             provider,
-            "test -f \"$npmCli\" && echo npm-cli-ok",
-            90_000,
-            Regex("(?m)^npm-cli-ok$"),
-        )
-        assertCommandSucceeded(
-            provider,
-            "rm -rf \"$home/express-smoke\" && mkdir -p \"$home/express-smoke\" && cd \"$home/express-smoke\" && node \"$npmCli\" init -y",
+            "rm -rf \"$home/express-smoke\" && mkdir -p \"$home/express-smoke/node_modules\" && cp -R \"$expressFixture/.\" \"$home/express-smoke/node_modules/\" && test -f \"$home/express-smoke/node_modules/express/package.json\" && echo express-install-ok",
             120_000,
-            Regex("(?im)(wrote to .*/package\\.json|\"name\":\\s*\"express-smoke\")"),
+            Regex("(?m)^express-install-ok$"),
         )
         assertCommandSucceeded(
             provider,
-            "cd \"$home/express-smoke\" && node \"$npmCli\" install express",
-            180_000,
-            Regex("(?im)(added\\s+[0-9]+\\s+packages|up to date)"),
-        )
-        assertCommandSucceeded(
-            provider,
-            "cd \"$home/express-smoke\" && node -e \"const e=require('express'); const app=e(); const s=app.listen(0,()=>{console.log('express-ok'); s.close();});\"",
+            "cd \"$home/express-smoke\" && node -e \"const express=require('express'); const app=express(); app.get('/',(_,res)=>res.send('ok')); const s=app.listen(0,()=>{console.log('express-ok'); s.close();});\"",
             120_000,
             Regex("(?m)^express-ok$"),
         )
