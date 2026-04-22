@@ -192,28 +192,97 @@ object CoryTerminalRuntime {
         val node = File(usrBin, "node")
         if (!node.exists()) return
 
-        val npmCli = File(bundledLib, "node_modules/npm/bin/npm-cli.js")
-        val npxCli = File(bundledLib, "node_modules/npm/bin/npx-cli.js")
+        val npmRoot = ensureBundledNpmExpanded(bundledLib, node) ?: return
+        val npmCli = File(npmRoot, "bin/npm-cli.js")
+        val npxCli = File(npmRoot, "bin/npx-cli.js")
 
         if (npmCli.exists()) {
             writeShellWrapper(
-                File(usrBin, "npm.sh"),
+                File(usrBin, "npm-runner.sh"),
                 """
                 |#!/system/bin/sh
                 |exec "${node.absolutePath}" "${npmCli.absolutePath}" "${'$'}@"
                 """.trimMargin()
             )
-            writeCommandShim(File(usrBin, "npm"), File(usrBin, "npm.sh"))
+            writeShellWrapper(
+                File(usrBin, "npm"),
+                """
+                |#!/system/bin/sh
+                |exec /system/bin/sh "${File(usrBin, "npm-runner.sh").absolutePath}" "${'$'}@"
+                """.trimMargin()
+            )
         }
         if (npxCli.exists()) {
             writeShellWrapper(
-                File(usrBin, "npx.sh"),
+                File(usrBin, "npx-runner.sh"),
                 """
                 |#!/system/bin/sh
                 |exec "${node.absolutePath}" "${npxCli.absolutePath}" "${'$'}@"
                 """.trimMargin()
             )
-            writeCommandShim(File(usrBin, "npx"), File(usrBin, "npx.sh"))
+            writeShellWrapper(
+                File(usrBin, "npx"),
+                """
+                |#!/system/bin/sh
+                |exec /system/bin/sh "${File(usrBin, "npx-runner.sh").absolutePath}" "${'$'}@"
+                """.trimMargin()
+            )
+        }
+    }
+
+    private fun ensureBundledNpmExpanded(bundledLib: File, node: File): File? {
+        val nodeModulesRoot = File(bundledLib, "node_modules")
+        val npmRoot = File(nodeModulesRoot, "npm")
+        val npmCli = File(npmRoot, "bin/npm-cli.js")
+        if (npmCli.exists()) return npmRoot
+
+        val npmTarball = File(nodeModulesRoot, "npm.tgz")
+        if (!npmTarball.exists()) {
+            Log.w(TAG, "npm tarball missing at ${npmTarball.absolutePath}")
+            return null
+        }
+
+        val extractScript = """
+            const fs = require('fs');
+            const path = require('path');
+            const zlib = require('zlib');
+            const tar = require('tar');
+            const npmRoot = process.argv[1];
+            const tgz = process.argv[2];
+            const pkgDir = path.join(npmRoot, 'package');
+            if (!fs.existsSync(path.join(pkgDir, 'bin', 'npm-cli.js'))) {
+              fs.rmSync(pkgDir, { recursive: true, force: true });
+              fs.mkdirSync(pkgDir, { recursive: true });
+              tar.x({ cwd: npmRoot, file: tgz, sync: true, gzip: true });
+            }
+            const finalDir = path.join(npmRoot, 'npm');
+            if (!fs.existsSync(path.join(finalDir, 'bin', 'npm-cli.js'))) {
+              fs.rmSync(finalDir, { recursive: true, force: true });
+              fs.renameSync(pkgDir, finalDir);
+            }
+            process.stdout.write(finalDir);
+        """.trimIndent()
+
+        return try {
+            val process = ProcessBuilder(
+                node.absolutePath,
+                "-e",
+                extractScript,
+                npmRoot.absolutePath,
+                npmTarball.absolutePath,
+            )
+                .redirectErrorStream(true)
+                .start()
+            val out = process.inputStream.bufferedReader(Charsets.UTF_8).readText().trim()
+            val code = process.waitFor()
+            if (code != 0) {
+                Log.w(TAG, "npm expand helper exited $code: $out")
+                return null
+            }
+            File(out).takeIf { File(it, "bin/npm-cli.js").exists() }
+        } catch (e: Exception) {
+            Log.w(TAG, "failed to expand bundled npm", e)
+            null
         }
     }
 

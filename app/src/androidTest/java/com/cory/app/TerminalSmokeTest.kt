@@ -95,6 +95,7 @@ class TerminalSmokeTest {
         val files = composeRule.activity.filesDir.absolutePath
         val home = File(files, "home/dfsmoke").absolutePath
         val cloneDest = File(files, "home/dfsmoke-clone").absolutePath
+        val npmCli = "$files/python/lib/node_modules/npm/bin/npm-cli.js"
 
         assertCommandSucceeded(
             provider,
@@ -125,6 +126,30 @@ class TerminalSmokeTest {
             "python3 -m pip --version",
             90_000,
             Regex("(?im)^pip\\s+[0-9]+\\.[0-9]+"),
+        )
+        assertCommandSucceeded(
+            provider,
+            "test -f \"$npmCli\" && echo npm-cli-ok",
+            90_000,
+            Regex("(?m)^npm-cli-ok$"),
+        )
+        assertCommandSucceeded(
+            provider,
+            "rm -rf \"$home/express-smoke\" && mkdir -p \"$home/express-smoke\" && cd \"$home/express-smoke\" && node \"$npmCli\" init -y",
+            120_000,
+            Regex("(?im)(wrote to .*/package\\.json|\"name\":\\s*\"express-smoke\")"),
+        )
+        assertCommandSucceeded(
+            provider,
+            "cd \"$home/express-smoke\" && node \"$npmCli\" install express",
+            180_000,
+            Regex("(?im)(added\\s+[0-9]+\\s+packages|up to date)"),
+        )
+        assertCommandSucceeded(
+            provider,
+            "cd \"$home/express-smoke\" && node -e \"const e=require('express'); const app=e(); const s=app.listen(0,()=>{console.log('express-ok'); s.close();});\"",
+            120_000,
+            Regex("(?m)^express-ok$"),
         )
         assertCommandSucceeded(
             provider,
@@ -160,6 +185,24 @@ class TerminalSmokeTest {
             "test -f \"$cloneDest/a\" && echo clone-ok",
             60_000,
             Regex("(?m)^clone-ok$"),
+        )
+        assertCommandSucceeded(
+            provider,
+            "git clone https://github.com/octocat/Hello-World \"$home/hello-world\"",
+            180_000,
+            Regex("(?im)(cloning into|checking connectivity|done\\.)"),
+        )
+        assertCommandSucceeded(
+            provider,
+            "rm -rf \"$home-remote.git\" 2>/dev/null && git init --bare \"$home-remote.git\"",
+            120_000,
+            Regex("(?im)(initialized empty git repository|reinitialized existing git repository)"),
+        )
+        assertCommandSucceeded(
+            provider,
+            "cd \"$home\" && git remote add origin \"$home-remote.git\" && git push origin master",
+            120_000,
+            Regex("(?im)(\\[new branch\\]|everything up-to-date|to .+dfsmoke-remote\\.git)"),
         )
     }
 }

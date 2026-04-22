@@ -130,6 +130,7 @@ android {
                     'lib/arm64-v8a/libbash.so',
                     'lib/arm64-v8a/libbusybox.so',
                     'lib/arm64-v8a/libpython3.14.so',
+                    'lib/arm64-v8a/libgit.so',
             ]
         }
     }
@@ -293,21 +294,12 @@ tasks.register('preparePythonAssets', Copy) {
         rename(/.*(\.gz|-)$/, '$0-')
     }
 
-    into("python/lib/node_modules/npm") {
-        from(tarTree(resources.gzip(coryNpmTarball))) {
-            eachFile { details ->
-                def segments = details.relativePath.segments
-                if (segments.length < 2 || segments[0] != 'package') {
-                    details.exclude()
-                    return
-                }
-                details.relativePath = new org.gradle.api.file.RelativePath(
-                        details.isDirectory(),
-                        (String[]) segments[1..-1]
-                )
-            }
-            includeEmptyDirs = false
-        }
+    // Ship npm as a single tarball and expand it at runtime. This avoids
+    // Gradle/tarTree path-shape differences across environments while keeping
+    // packaging deterministic.
+    into("python/lib/node_modules") {
+        from(coryNpmTarball)
+        rename { 'npm.tgz' }
     }
 
     if (coryRipgrepBinary.exists()) {
@@ -347,6 +339,33 @@ tasks.register('preparePythonAssets', Copy) {
 
     doLast {
         mkdir("${coryGeneratedPythonAssetsDir}/python/cwd")
+
+        // Expand npm package payload from npm.tgz into node_modules/npm so
+        // runtime wrappers can execute npm-cli.js directly without on-device
+        // extraction logic.
+        def npmNodeModulesDir = file("${coryGeneratedPythonAssetsDir}/python/lib/node_modules")
+        def npmTarInAssets = file("${npmNodeModulesDir}/npm.tgz")
+        if (npmTarInAssets.exists()) {
+            npmNodeModulesDir.mkdirs()
+            exec {
+                commandLine 'tar', '-xzf', npmTarInAssets.absolutePath, '-C', npmNodeModulesDir.absolutePath
+            }
+            def extractedPackageDir = file("${npmNodeModulesDir}/package")
+            def finalNpmDir = file("${npmNodeModulesDir}/npm")
+            if (extractedPackageDir.exists()) {
+                if (finalNpmDir.exists()) {
+                    finalNpmDir.deleteDir()
+                }
+                if (!extractedPackageDir.renameTo(finalNpmDir)) {
+                    throw new GradleException("Failed to move npm package dir to ${finalNpmDir}")
+                }
+            }
+            if (!file("${finalNpmDir}/bin/npm-cli.js").exists()) {
+                throw new GradleException("npm-cli.js missing after npm extraction at ${finalNpmDir}")
+            }
+        } else {
+            logger.warn("npm tarball not found in assets staging: ${npmTarInAssets}")
+        }
 
         // Strip debug symbols from the bundled node binary. Upstream
         // node24-android.tgz in S3 ships ~913 MB unstripped (V8 + Node
