@@ -123,6 +123,14 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // App + terminal module both contribute some runtime .so files.
+            // Also, libpython3.14.so is contributed via app jniLibs and CMake IMPORTED target output.
+            // Keep deterministic merge behavior so assembleDebug succeeds without changing runtime behavior.
+            pickFirsts += [
+                    'lib/arm64-v8a/libbash.so',
+                    'lib/arm64-v8a/libbusybox.so',
+                    'lib/arm64-v8a/libpython3.14.so',
+            ]
         }
     }
 
@@ -458,14 +466,18 @@ tasks.named('preBuild').configure {
 // are independent in AGP's model), so mergeAssets can race ahead of
 // CMake and package an empty bin/ dir.
 //
-// Fix: make mergeDebugAssets / mergeReleaseAssets depend on the lazy
-// collection of every `buildCMake*` task. `tasks.matching` returns a
-// live `TaskCollection` that Gradle resolves at graph-construction time,
-// by which point AGP has registered its per-ABI CMake tasks
-// (`buildCMakeDebug[arm64-v8a]` etc). `dependsOn(TaskCollection)` is
-// the documented lazy pattern — no nested `configureEach` needed.
-tasks.matching { it.name == 'mergeDebugAssets' || it.name == 'mergeReleaseAssets' }.configureEach {
-    dependsOn(tasks.matching { it.name.startsWith('buildCMake') })
+// Fix: make each mergeAssets task depend only on its own variant's CMake
+// producers. Depending on every `buildCMake*` task causes both debug and
+// release native tasks to run during `assembleDebug`, and both tasks write
+// `python/bin/git` into the same generated assets directory, which then
+// surfaces as a duplicate resource in mergeDebugAssets.
+tasks.matching { it.name == 'mergeDebugAssets' }.configureEach {
+    dependsOn(tasks.matching { it.name.startsWith('buildCMakeDebug') })
+}
+tasks.matching { it.name == 'mergeReleaseAssets' }.configureEach {
+    dependsOn(tasks.matching {
+        it.name.startsWith('buildCMakeRelease') || it.name.startsWith('buildCMakeRelWithDebInfo')
+    })
 }
 
 // USB "connected" instrumentation is not part of the supported local workflow; release smoke runs on
