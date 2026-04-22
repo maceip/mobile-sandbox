@@ -123,6 +123,10 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // Keep node executable copy unstripped in release APKs.
+            // Device Farm reproducibly hits exit 139 on npm workloads when
+            // AGP strips libnode.so during release packaging.
+            keepDebugSymbols += ['lib/arm64-v8a/libnode.so']
             // App + terminal module both contribute some runtime .so files.
             // Also, libpython3.14.so is contributed via app jniLibs and CMake IMPORTED target output.
             // Keep deterministic merge behavior so assembleDebug succeeds without changing runtime behavior.
@@ -294,9 +298,8 @@ tasks.register('preparePythonAssets', Copy) {
         rename(/.*(\.gz|-)$/, '$0-')
     }
 
-    // Ship npm as a single tarball and expand it at runtime. This avoids
-    // Gradle/tarTree path-shape differences across environments while keeping
-    // packaging deterministic.
+    // Ship npm as a tarball and expand in doLast to keep path handling deterministic
+    // across Gradle/host environments.
     into("python/lib/node_modules") {
         from(coryNpmTarball)
         rename { 'npm.tgz' }
@@ -481,6 +484,12 @@ tasks.register('prepareNativeLibs', Copy) {
             return
         }
         fileTree(coryGeneratedPythonJniLibsDir).matching { include '**/*.so' }.each { f ->
+            if (f.name == 'libnode.so') {
+                // Do not strip the Node executable copy used via nativeLibraryDir.
+                // We observed Device Farm crashes (exit 139) under npm workloads when
+                // this binary was stripped; keep it intact for runtime stability.
+                return
+            }
             exec {
                 commandLine strip.absolutePath, '--strip-debug', f.absolutePath
             }
