@@ -129,7 +129,7 @@ android {
             // Keep node executable copy unstripped in release APKs.
             // Device Farm reproducibly hits exit 139 on npm workloads when
             // AGP strips libnode.so during release packaging.
-            keepDebugSymbols += ['lib/arm64-v8a/libnode.so']
+            keepDebugSymbols += ['**/libnode.so']
             // App + terminal module both contribute some runtime .so files.
             // Also, libpython3.14.so is contributed via app jniLibs and CMake IMPORTED target output.
             // Keep deterministic merge behavior so assembleDebug succeeds without changing runtime behavior.
@@ -540,6 +540,22 @@ tasks.matching { it.name == 'mergeDebugAssets' }.configureEach {
 }
 tasks.matching { it.name == 'mergeReleaseAssets' }.configureEach {
     dependsOn(tasks.matching { it.name.startsWith('buildCMakeRelWithDebInfo') })
+}
+
+// AGP strips release JNI libs in stripReleaseDebugSymbols. Preserve libnode.so
+// by restoring the merged (unstripped) binary right after strip runs.
+tasks.matching { it.name == 'stripReleaseDebugSymbols' }.configureEach {
+    doLast {
+        def mergedLibnode = file("$buildDir/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out/lib/${coryPythonAbi}/libnode.so")
+        def strippedLibnode = file("$buildDir/intermediates/stripped_native_libs/release/stripReleaseDebugSymbols/out/lib/${coryPythonAbi}/libnode.so")
+        if (mergedLibnode.exists() && strippedLibnode.parentFile.exists()) {
+            copy {
+                from(mergedLibnode)
+                into(strippedLibnode.parentFile)
+                rename { 'libnode.so' }
+            }
+        }
+    }
 }
 
 // USB "connected" instrumentation is not part of the supported local workflow; release smoke runs on
