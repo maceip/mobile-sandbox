@@ -134,7 +134,7 @@ class TerminalSmokeTest {
         )
         assertCommandSucceeded(
             provider,
-            "cd \"$home/express-smoke\" && node -e \"const express=require('express'); const app=express(); app.get('/',(_,res)=>res.send('ok')); const s=app.listen(0,()=>{console.log('express-ok'); s.close();});\"",
+            "cd \"$home/express-smoke\" && node --jitless -e \"const express=require('express'); const app=express(); app.get('/',(_,res)=>res.send('ok')); const s=app.listen(0,()=>{console.log('express-ok'); s.close();});\"",
             120_000,
             Regex("(?m)^express-ok$"),
         )
