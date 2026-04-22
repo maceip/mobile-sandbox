@@ -1,16 +1,12 @@
 package com.cory.app
 
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.action.ViewActions.click
-import androidx.test.espresso.action.ViewActions.typeTextIntoFocusedView
-import androidx.test.espresso.matcher.ViewMatchers.withClassName
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.ai.assistance.operit.terminal.TerminalManager
-import org.hamcrest.Matchers.endsWith
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,26 +24,8 @@ class TerminalSmokeTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComposeSandboxActivity>()
 
-    private fun terminalText(): String {
-        val nodes =
-            composeRule.onAllNodesWithTag("terminal-output", useUnmergedTree = true)
-                .fetchSemanticsNodes()
-        val best = nodes.maxByOrNull { node ->
-            node.config.getOrNull(SemanticsProperties.ContentDescription)
-                ?.joinToString("") { seg -> seg.toString() }
-                ?.length ?: 0
-        }
-        return best?.config?.getOrNull(SemanticsProperties.ContentDescription)
-            ?.joinToString("") { seg -> seg.toString() }
-            ?: ""
-    }
-
-    /** Semantics mirror raw screen cells; strip CSI/OSC so matchers see visible text (e.g. node -v). */
-    private fun terminalTextPlain(): String =
-        terminalText()
-            .replace(Regex("\u001b\\[[0-9;:]*[ -/]*[@-~]"), "")
-            .replace(Regex("\u001b\\][^\u0007]*\u0007"), "")
-            .replace(Regex("\u001b."), "")
+    private fun terminalTextPlain(manager: TerminalManager): String =
+        manager.shadowEmulator.value.renderFullTerminalTextForSemantics(maxChars = 80_000)
 
     private fun waitUntil(timeoutMillis: Long, pollMillis: Long = 100, condition: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMillis
@@ -59,15 +37,112 @@ class TerminalSmokeTest {
         throw AssertionError("condition not met within ${timeoutMillis}ms")
     }
 
-    private fun waitForSubstring(
-        needle: String,
-        timeoutMillis: Long = 120_000,
-        ignoreCase: Boolean = true,
+    private fun jsonEscape(value: String): String =
+        value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+
+    private fun jsonValue(value: Any?): String = when (value) {
+        null -> "null"
+        is Number, is Boolean -> value.toString()
+        else -> "\"${jsonEscape(value.toString())}\""
+    }
+
+    private fun debugLog(
+        hypothesisId: String,
+        location: String,
+        message: String,
+        data: Map<String, Any?> = emptyMap(),
     ) {
+        val dataJson = data.entries.joinToString(prefix = "{", postfix = "}") { (k, v) ->
+            "\"${jsonEscape(k)}\":${jsonValue(v)}"
+        }
+        val line = "{\"hypothesisId\":\"${jsonEscape(hypothesisId)}\"," +
+            "\"location\":\"${jsonEscape(location)}\"," +
+            "\"message\":\"${jsonEscape(message)}\"," +
+            "\"data\":$dataJson," +
+            "\"timestamp\":${System.currentTimeMillis()}}"
+        File("/opt/cursor/logs/debug.log").appendText("$line\n")
+    }
+
+    private data class CommandResult(
+        val command: String,
+        val output: String,
+        val exitCode: Int,
+    )
+
+    private fun runCommand(
+        manager: TerminalManager,
+        command: String,
+        timeoutMillis: Long = 120_000,
+    ): CommandResult {
+        val token = "${System.currentTimeMillis()}_${System.nanoTime()}"
+        val startMarker = "__DF_START_${token}__"
+        val rcMarker = "__DF_RC_${token}__:"
+        val endMarker = "__DF_END_${token}__"
+
+        val wrapped = "printf '$startMarker\\n'; $command; __df_rc=$?; printf '$rcMarker%s\\n' \"\$__df_rc\"; printf '$endMarker\\n'"
+        // #region agent log
+        debugLog(
+            hypothesisId = "A",
+            location = "TerminalSmokeTest.kt:runCommand:entry",
+            message = "Submitting command to PTY via sendCommand",
+            data = mapOf("command" to command, "timeoutMillis" to timeoutMillis, "token" to token),
+        )
+        // #endregion
+        val sent = runBlocking { manager.sendCommand(wrapped) }
+        // #region agent log
+        debugLog(
+            hypothesisId = "A",
+            location = "TerminalSmokeTest.kt:runCommand:afterSend",
+            message = "sendCommand returned",
+            data = mapOf("command" to command, "sent" to sent),
+        )
+        // #endregion
+        assertTrue("failed to write command to PTY: $command", sent)
+
         waitUntil(timeoutMillis) {
-            val t = terminalText()
-            if (ignoreCase) t.contains(needle, ignoreCase = true)
-            else t.contains(needle)
+            terminalTextPlain(manager).contains(endMarker)
+        }
+
+        val snapshot = terminalTextPlain(manager)
+        // #region agent log
+        debugLog(
+            hypothesisId = "B",
+            location = "TerminalSmokeTest.kt:runCommand:markerSeen",
+            message = "End marker observed in terminal snapshot",
+            data = mapOf("command" to command, "snapshotLength" to snapshot.length),
+        )
+        // #endregion
+        val start = snapshot.lastIndexOf(startMarker)
+        val end = if (start >= 0) snapshot.indexOf(endMarker, start) else -1
+        assertTrue("missing output markers for command: $command", start >= 0 && end >= 0)
+        val section = snapshot.substring(start, end + endMarker.length)
+        val rcMatch = Regex("${Regex.escape(rcMarker)}(\\d+)").find(section)
+            ?: throw AssertionError("missing exit marker for command: $command\n$section")
+        val exitCode = rcMatch.groupValues[1].toInt()
+        // #region agent log
+        debugLog(
+            hypothesisId = "C",
+            location = "TerminalSmokeTest.kt:runCommand:exitCode",
+            message = "Command finished with explicit exit marker",
+            data = mapOf("command" to command, "exitCode" to exitCode),
+        )
+        // #endregion
+        return CommandResult(command = command, output = section, exitCode = exitCode)
+    }
+
+    private fun assertCommandSucceeded(
+        manager: TerminalManager,
+        command: String,
+        timeoutMillis: Long = 120_000,
+        expectedOutputRegex: Regex? = null,
+    ) {
+        val result = runCommand(manager, command, timeoutMillis)
+        assertEquals("command failed with exit=${result.exitCode}: ${result.command}\n${result.output}", 0, result.exitCode)
+        if (expectedOutputRegex != null) {
+            assertTrue(
+                "command output did not match ${expectedOutputRegex.pattern}: ${result.command}\n${result.output}",
+                expectedOutputRegex.containsMatchIn(result.output),
+            )
         }
     }
 
@@ -84,68 +159,95 @@ class TerminalSmokeTest {
         // Until the PTY has emitted output, semantics are blank spaces only; sendRawInput is also
         // a no-op if the first session never attached. Wait for non-trivial visible text.
         waitUntil(120_000) {
-            terminalTextPlain().count { !it.isWhitespace() } >= 8
+            terminalTextPlain(manager).count { !it.isWhitespace() } >= 8
         }
+        // #region agent log
+        debugLog(
+            hypothesisId = "D",
+            location = "TerminalSmokeTest.kt:bundledToolchainAndGitWorktreeEndToEnd:ready",
+            message = "Terminal session ready; beginning deterministic command flow",
+            data = mapOf(
+                "sessionCount" to manager.sessions.value.size,
+                "nonWhitespaceChars" to terminalTextPlain(manager).count { !it.isWhitespace() },
+            ),
+        )
+        // #endregion
 
         val files = composeRule.activity.filesDir.absolutePath
         val home = File(files, "home/dfsmoke").absolutePath
         val cloneDest = File(files, "home/dfsmoke-clone").absolutePath
 
-        onView(withClassName(endsWith("CanvasTerminalView"))).perform(click())
-        Thread.sleep(500)
-
-        fun typeLine(line: String) {
-            onView(withClassName(endsWith("CanvasTerminalView"))).perform(
-                typeTextIntoFocusedView(line + "\n"),
-            )
-            Thread.sleep(400)
-        }
-
-        typeLine("node -v")
-        waitUntil(120_000) {
-            val t = terminalTextPlain()
-            Regex("[vV][0-9]+(?:\\.[0-9]+)+").containsMatchIn(t) ||
-                (t.contains("node", ignoreCase = true) &&
-                    Regex("[0-9]+\\.[0-9]+(?:\\.[0-9]+)?").containsMatchIn(t))
-        }
-
-        typeLine(
-            "python3 -c \"import ssl, sqlite3, json, os, urllib.request; print(1+1)\"",
+        assertCommandSucceeded(
+            manager,
+            "node -v",
+            120_000,
+            Regex("(?m)^v[0-9]+(?:\\.[0-9]+){2}$"),
         )
-        waitForSubstring("2", 60_000)
+        assertCommandSucceeded(
+            manager,
+            "python3 -c \"import sqlite3, json, os, urllib.parse; print(1+1)\"",
+            90_000,
+            Regex("(?m)^2$"),
+        )
+        assertCommandSucceeded(
+            manager,
+            "bash --version",
+            90_000,
+            Regex("(?im)(gnu\\s+bash|bash\\s+version)"),
+        )
+        assertCommandSucceeded(
+            manager,
+            "busybox echo cory-busybox-test",
+            60_000,
+            Regex("(?m)^cory-busybox-test$"),
+        )
+        assertCommandSucceeded(
+            manager,
+            "python3 -m pip --version",
+            90_000,
+            Regex("(?im)^pip\\s+[0-9]+\\.[0-9]+"),
+        )
+        assertCommandSucceeded(
+            manager,
+            "node \"$files/python/lib/node_modules/npm/bin/npm-cli.js\" --version",
+            90_000,
+            Regex("(?m)^[0-9]+\\.[0-9]+\\.[0-9]+$"),
+        )
 
-        typeLine("bash --version")
-        waitForSubstring("bash", 60_000)
-
-        typeLine("busybox echo cory-busybox-test")
-        waitForSubstring("cory-busybox-test", 60_000)
-
-        typeLine("pip --version")
-        waitForSubstring("pip", 90_000)
-
-        typeLine("npm --version")
-        waitUntil(90_000) {
-            Regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", RegexOption.MULTILINE).containsMatchIn(terminalTextPlain())
-        }
-
-        typeLine("rm -rf \"$home\" \"$cloneDest\" 2>/dev/null; mkdir -p \"$home\" && cd \"$home\" && git init .")
-        waitForSubstring("Initialized", 90_000)
-
-        typeLine("echo hi > a && git add a")
-        typeLine("git -c user.email=ci@cory.app -c user.name=CI commit -m init")
-        waitForSubstring("init", 90_000)
-
-        typeLine("git worktree list")
-        waitForSubstring(home, 90_000)
-        waitForSubstring("[", 90_000)
-
-        typeLine("git worktree add \"${home}-wt\"")
-        waitForSubstring("Created", 120_000)
-
-        typeLine("git worktree list")
-        waitForSubstring("${home}-wt", 120_000)
-
-        typeLine("git clone https://github.com/octocat/Hello-World \"$cloneDest\"")
-        waitForSubstring("Hello-World", 180_000)
+        assertCommandSucceeded(
+            manager,
+            "rm -rf \"$home\" \"${home}-wt\" \"$cloneDest\" 2>/dev/null; mkdir -p \"$home\" && cd \"$home\" && git init .",
+            90_000,
+            Regex("(?i)initialized empty git repository"),
+        )
+        assertCommandSucceeded(
+            manager,
+            "cd \"$home\" && echo hi > a && git add a && git -c user.email=ci@cory.app -c user.name=CI commit -m init",
+            90_000,
+            Regex("(?im)(\\[.*init\\]|1 file changed)"),
+        )
+        assertCommandSucceeded(
+            manager,
+            "cd \"$home\" && git worktree add \"${home}-wt\"",
+            120_000,
+            Regex("(?im)(preparing worktree|head is now at)"),
+        )
+        assertCommandSucceeded(
+            manager,
+            "cd \"$home\" && git worktree list",
+            90_000,
+            Regex(Regex.escape("${home}-wt")),
+        )
+        assertCommandSucceeded(
+            manager,
+            "git clone \"$home\" \"$cloneDest\"",
+            120_000,
+        )
+        assertCommandSucceeded(
+            manager,
+            "test -f \"$cloneDest/a\" && echo clone-ok",
+            60_000,
+            Regex("(?m)^clone-ok$"),
+        )
     }
 }
