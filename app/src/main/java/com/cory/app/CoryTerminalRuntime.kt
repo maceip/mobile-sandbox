@@ -40,10 +40,19 @@ object CoryTerminalRuntime {
         "git"
     )
 
+    private val NATIVE_TOOL_BINARIES = mapOf(
+        "node" to "libnode.so",
+        "python3" to "libpython3.so",
+        "python3.14" to "libpython3.so",
+        "rg" to "librg.so",
+        "git" to "libgit.so",
+        "busybox" to "libbusybox.so",
+    )
+
     fun ensureReady(context: Context) {
         TerminalBootstrap.ensureEnvironment(context)
         syncBundledRuntime(context.assets, context.filesDir)
-        linkBundledTools(context.filesDir)
+        linkBundledTools(context.filesDir, context.applicationInfo.nativeLibraryDir)
     }
 
     private fun syncBundledRuntime(assets: AssetManager, filesDir: File) {
@@ -88,7 +97,7 @@ object CoryTerminalRuntime {
         }
     }
 
-    private fun linkBundledTools(filesDir: File) {
+    private fun linkBundledTools(filesDir: File, nativeLibDir: String) {
         val runtimeRoot = File(filesDir, "python")
         val bundledBin = File(runtimeRoot, "bin")
         val bundledLib = File(runtimeRoot, "lib")
@@ -105,13 +114,24 @@ object CoryTerminalRuntime {
             missingTools += ASSET_TOOL_BINARIES
         } else {
             for (tool in ASSET_TOOL_BINARIES) {
+                val target = File(usrBin, tool)
+                val nativeName = NATIVE_TOOL_BINARIES[tool]
+                if (nativeName != null) {
+                    val nativeSource = File(nativeLibDir, nativeName)
+                    if (nativeSource.exists()) {
+                        // Device Farm SELinux can deny direct exec() from app-private asset paths
+                        // like files/python/bin/*. Prefer nativeLibraryDir when available.
+                        symlinkOrCopy(nativeSource, target)
+                        continue
+                    }
+                }
+
                 val source = File(bundledBin, tool)
                 if (!source.exists()) {
                     Log.w(TAG, "asset binary missing: $tool")
                     missingTools += tool
                     continue
                 }
-                val target = File(usrBin, tool)
                 symlinkOrCopy(source, target)
             }
 
@@ -122,8 +142,11 @@ object CoryTerminalRuntime {
             }
         }
 
+        // Busybox applet symlinks for editors and common utilities
+        linkBusyboxApplets(usrBin)
+
         // Shell wrappers for pip and npm (these are cheap to rewrite every launch)
-        writePipWrappers(usrBin)
+        writePipWrappers(usrBin, bundledLib)
         writeNpmWrappers(usrBin, bundledLib)
 
         // Append missing-tool warnings to the bootstrap status file so the
@@ -132,28 +155,76 @@ object CoryTerminalRuntime {
         appendMissingToolWarnings(homeDir, missingTools)
     }
 
-    private fun writePipWrappers(usrBin: File) {
+    private val BUSYBOX_APPLETS = listOf(
+        "vi", "ed", "less", "more", "grep", "find", "awk", "sed",
+        "cat", "ls", "cp", "mv", "rm", "mkdir", "rmdir", "chmod",
+        "chown", "ln", "head", "tail", "wc", "sort", "uniq",
+        "tar", "gzip", "gunzip", "xargs", "diff", "patch",
+        "wget", "ping", "hostname", "env", "which", "whoami",
+        "expr", "test", "true", "false", "printf", "echo",
+        "date", "cal", "du", "df", "free", "ps", "kill", "top",
+        "touch", "tr", "tee", "cut", "basename", "dirname",
+        "realpath", "readlink", "sleep", "seq", "yes", "clear",
+        "reset", "stty", "id", "uname"
+    )
+
+    private fun linkBusyboxApplets(usrBin: File) {
+        val busybox = File(usrBin, "busybox")
+        if (!busybox.exists()) return
+
+        for (applet in BUSYBOX_APPLETS) {
+            val target = File(usrBin, applet)
+            if (target.exists()) continue
+            symlinkOrCopy(busybox, target)
+        }
+
+        // `nano` shim: delegates to busybox vi since real nano is
+        // impractical to cross-compile for Android without ncurses.
+        val nano = File(usrBin, "nano")
+        if (!nano.exists()) {
+            writeShellWrapper(
+                nano,
+                """
+                |#!/system/bin/sh
+                |exec "${busybox.absolutePath}" vi "${'$'}@"
+                """.trimMargin()
+            )
+        }
+    }
+
+    private fun writePipWrappers(usrBin: File, bundledLib: File) {
         val python3 = File(usrBin, "python3")
         if (!python3.exists()) return  // pip is useless without python3
 
-        val pip = File(usrBin, "pip")
+        val pipModule = File(bundledLib, "python3.14/ensurepip/_bundled/pip-25.1.1-py3-none-any.whl")
+        val setuputilsModule = File(bundledLib, "python3.14/_distutils_hack/__init__.py")
+
+        val pip = File(usrBin, "pip.sh")
         writeShellWrapper(
             pip,
             """
             |#!/system/bin/sh
             |PYTHON_BIN="${python3.absolutePath}"
+            |PYTHONPIP_PATH="${pipModule.absolutePath}"
+            |PYTHONSETUPTOOLS_PATH="${setuputilsModule.absolutePath}"
+            |if [ -d "${bundledLib.absolutePath}/python3.14/lib-dynload" ]; then
+            |  export PYTHONPATH="${bundledLib.absolutePath}/python3.14/lib-dynload:${'$'}PYTHONPIP_PATH:${'$'}PYTHONSETUPTOOLS_PATH"
+            |else
+            |  export PYTHONPATH="${'$'}PYTHONPIP_PATH:${'$'}PYTHONSETUPTOOLS_PATH"
+            |fi
             |if ! "${'$'}PYTHON_BIN" -c "import pip" >/dev/null 2>&1; then
             |  "${'$'}PYTHON_BIN" -m ensurepip --upgrade || exit ${'$'}?
             |fi
             |exec "${'$'}PYTHON_BIN" -m pip "${'$'}@"
             """.trimMargin()
         )
-        writeShellWrapper(
+        writeCommandShim(
+            File(usrBin, "pip"),
+            pip,
+        )
+        writeCommandShim(
             File(usrBin, "pip3"),
-            """
-            |#!/system/bin/sh
-            |exec "${pip.absolutePath}" "${'$'}@"
-            """.trimMargin()
+            pip,
         )
     }
 
@@ -161,26 +232,97 @@ object CoryTerminalRuntime {
         val node = File(usrBin, "node")
         if (!node.exists()) return
 
-        val npmCli = File(bundledLib, "node_modules/npm/bin/npm-cli.js")
-        val npxCli = File(bundledLib, "node_modules/npm/bin/npx-cli.js")
+        val npmRoot = ensureBundledNpmExpanded(bundledLib, node) ?: return
+        val npmCli = File(npmRoot, "bin/npm-cli.js")
+        val npxCli = File(npmRoot, "bin/npx-cli.js")
 
         if (npmCli.exists()) {
             writeShellWrapper(
-                File(usrBin, "npm"),
+                File(usrBin, "npm-runner.sh"),
                 """
                 |#!/system/bin/sh
                 |exec "${node.absolutePath}" "${npmCli.absolutePath}" "${'$'}@"
                 """.trimMargin()
             )
+            writeShellWrapper(
+                File(usrBin, "npm"),
+                """
+                |#!/system/bin/sh
+                |exec /system/bin/sh "${File(usrBin, "npm-runner.sh").absolutePath}" "${'$'}@"
+                """.trimMargin()
+            )
         }
         if (npxCli.exists()) {
             writeShellWrapper(
-                File(usrBin, "npx"),
+                File(usrBin, "npx-runner.sh"),
                 """
                 |#!/system/bin/sh
                 |exec "${node.absolutePath}" "${npxCli.absolutePath}" "${'$'}@"
                 """.trimMargin()
             )
+            writeShellWrapper(
+                File(usrBin, "npx"),
+                """
+                |#!/system/bin/sh
+                |exec /system/bin/sh "${File(usrBin, "npx-runner.sh").absolutePath}" "${'$'}@"
+                """.trimMargin()
+            )
+        }
+    }
+
+    private fun ensureBundledNpmExpanded(bundledLib: File, node: File): File? {
+        val nodeModulesRoot = File(bundledLib, "node_modules")
+        val npmRoot = File(nodeModulesRoot, "npm")
+        val npmCli = File(npmRoot, "bin/npm-cli.js")
+        if (npmCli.exists()) return npmRoot
+
+        val npmTarball = File(nodeModulesRoot, "npm.tgz")
+        if (!npmTarball.exists()) {
+            Log.w(TAG, "npm tarball missing at ${npmTarball.absolutePath}")
+            return null
+        }
+
+        val extractScript = """
+            const fs = require('fs');
+            const path = require('path');
+            const zlib = require('zlib');
+            const tar = require('tar');
+            const npmRoot = process.argv[1];
+            const tgz = process.argv[2];
+            const pkgDir = path.join(npmRoot, 'package');
+            if (!fs.existsSync(path.join(pkgDir, 'bin', 'npm-cli.js'))) {
+              fs.rmSync(pkgDir, { recursive: true, force: true });
+              fs.mkdirSync(pkgDir, { recursive: true });
+              tar.x({ cwd: npmRoot, file: tgz, sync: true, gzip: true });
+            }
+            const finalDir = path.join(npmRoot, 'npm');
+            if (!fs.existsSync(path.join(finalDir, 'bin', 'npm-cli.js'))) {
+              fs.rmSync(finalDir, { recursive: true, force: true });
+              fs.renameSync(pkgDir, finalDir);
+            }
+            process.stdout.write(finalDir);
+        """.trimIndent()
+
+        return try {
+            val process = ProcessBuilder(
+                node.absolutePath,
+                "-e",
+                extractScript,
+                npmRoot.absolutePath,
+                npmTarball.absolutePath,
+            )
+                .redirectErrorStream(true)
+                .start()
+            val out = process.inputStream.bufferedReader(Charsets.UTF_8).readText().trim()
+            val code = process.waitFor()
+            if (code != 0) {
+                Log.w(TAG, "npm expand helper exited $code: $out")
+                return null
+            }
+            File(out).takeIf { File(it, "bin/npm-cli.js").exists() }
+        } catch (e: Exception) {
+            Log.w(TAG, "failed to expand bundled npm", e)
+            null
         }
     }
 
@@ -231,6 +373,16 @@ object CoryTerminalRuntime {
         target.parentFile?.mkdirs()
         target.writeText(content.trimEnd() + "\n")
         target.setExecutable(true, true)
+    }
+
+    private fun writeCommandShim(target: File, script: File) {
+        writeShellWrapper(
+            target,
+            """
+            |#!/system/bin/sh
+            |exec /system/bin/sh "${script.absolutePath}" "${'$'}@"
+            """.trimMargin()
+        )
     }
 
     private fun File.readTextOrNull(): String? = if (exists()) readText() else null

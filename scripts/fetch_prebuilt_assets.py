@@ -98,12 +98,13 @@ def download(url: str, destination: Path, *, optional: bool = False) -> bool:
     Raises FetchError on any other failure.
     """
     log(f"download: {url}")
+    opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler)
     try:
-        with urllib.request.urlopen(url) as response, destination.open("wb") as output:
+        with opener.open(url) as response, destination.open("wb") as output:
             shutil.copyfileobj(response, output)
         return True
     except urllib.error.HTTPError as exc:
-        if optional and exc.code in (403, 404):
+        if optional and exc.code in (301, 302, 307, 308, 403, 404):
             log(f"optional asset not found (HTTP {exc.code}), skipping: {url}")
             return False
         raise FetchError(f"download failed ({exc.code}): {url}") from exc
