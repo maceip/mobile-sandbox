@@ -6,6 +6,7 @@
 .planning/
 .tooling/
 .idea/
+.android-sdk/
 local.properties
 .DS_Store
 
@@ -30,6 +31,13 @@ third_party/ripgrep/target/
 third_party/node24-android/
 third_party/python-android/prefix/
 third_party/shell-deps/
+
+# Tarball extraction artifacts that may land at repo root
+arm64-v8a/
+node24-android/
+debug/
+release/
+ndk-busybox-ref/
 
 # Local worktrees, downloaded toolchains, and scratch builds
 work/
