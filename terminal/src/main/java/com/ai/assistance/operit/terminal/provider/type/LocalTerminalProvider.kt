@@ -27,6 +27,11 @@ class LocalTerminalProvider(
     private val libDir: File = File(prefixDir, "lib")
     private val homeDir: File = File(filesDir, "home")
     private val tmpDir: File = File(filesDir, "tmp")
+    private val pythonHomeDir: File = File(filesDir, "python")
+    private val pythonStdlibDir: File = File(pythonHomeDir, "lib/python3.14")
+    private val pythonDynloadDir: File = File(pythonStdlibDir, "lib-dynload")
+    private val pythonSitePackagesDir: File = File(pythonStdlibDir, "site-packages")
+    private val pythonEnsurepipBundledDir: File = File(pythonStdlibDir, "ensurepip/_bundled")
     private val nativeLibDir: String = context.applicationInfo.nativeLibraryDir
 
     private val activeSessions = ConcurrentHashMap<String, TerminalSession>()
@@ -120,15 +125,33 @@ class LocalTerminalProvider(
 
     override fun getEnvironment(): Map<String, String> = buildEnvironment()
 
-    private fun buildEnvironment(): Map<String, String> = mapOf(
-        "HOME" to homeDir.absolutePath,
-        "PATH" to "${binDir.absolutePath}:${nativeLibDir}:/system/bin",
-        "PREFIX" to prefixDir.absolutePath,
-        "LD_LIBRARY_PATH" to "${libDir.absolutePath}:${nativeLibDir}",
-        "TMPDIR" to tmpDir.absolutePath,
-        "TERM" to "xterm-256color",
-        "LANG" to "en_US.UTF-8",
-        "COLORTERM" to "truecolor",
-        "SHELL" to File(binDir, "bash").absolutePath
-    )
+    private fun buildEnvironment(): Map<String, String> {
+        val pipWheel = pythonEnsurepipBundledDir.listFiles()
+            ?.firstOrNull { file ->
+                file.isFile &&
+                    file.name.startsWith("pip-") &&
+                    file.name.endsWith(".whl")
+            }
+        val pythonPathEntries = mutableListOf(
+            pythonStdlibDir.absolutePath,
+            pythonDynloadDir.absolutePath,
+            pythonSitePackagesDir.absolutePath,
+        )
+        if (pipWheel != null) {
+            pythonPathEntries += pipWheel.absolutePath
+        }
+        return mapOf(
+            "HOME" to homeDir.absolutePath,
+            "PATH" to "${binDir.absolutePath}:${nativeLibDir}:/system/bin",
+            "PREFIX" to prefixDir.absolutePath,
+            "LD_LIBRARY_PATH" to "${libDir.absolutePath}:${nativeLibDir}",
+            "PYTHONHOME" to pythonHomeDir.absolutePath,
+            "PYTHONPATH" to pythonPathEntries.joinToString(":"),
+            "TMPDIR" to tmpDir.absolutePath,
+            "TERM" to "xterm-256color",
+            "LANG" to "en_US.UTF-8",
+            "COLORTERM" to "truecolor",
+            "SHELL" to File(binDir, "bash").absolutePath,
+        )
+    }
 }

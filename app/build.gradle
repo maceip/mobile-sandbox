@@ -17,6 +17,9 @@ def coryPythonAbi = 'arm64-v8a'
 def coryNpmVersion = '10.9.2'
 def coryNpmTarball = file("$buildDir/downloads/npm-${coryNpmVersion}.tgz")
 def coryNpmUrl = "https://registry.npmjs.org/npm/-/npm-${coryNpmVersion}.tgz"
+def coryExpressVersion = '4.21.2'
+def coryExpressFixtureDir = file("$buildDir/generated/cory/express-fixture")
+def coryExpressFixtureNodeModulesDir = file("$coryExpressFixtureDir/node_modules")
 def coryNodeBinary = file("$rootDir/third_party/node24-android/bin/${coryPythonAbi}/node")
 def coryNodeStaticLib = file("$rootDir/third_party/node24-android/lib/${coryPythonAbi}/liblibnode.a")
 def coryRipgrepBinary = file("$rootDir/third_party/ripgrep/target/aarch64-linux-android/release/rg")
@@ -123,6 +126,19 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // Keep node executable copy unstripped in release APKs.
+            // Device Farm reproducibly hits exit 139 on npm workloads when
+            // AGP strips libnode.so during release packaging.
+            keepDebugSymbols += ['**/libnode.so']
+            // App + terminal module both contribute some runtime .so files.
+            // Also, libpython3.14.so is contributed via app jniLibs and CMake IMPORTED target output.
+            // Keep deterministic merge behavior so assembleDebug succeeds without changing runtime behavior.
+            pickFirsts += [
+                    'lib/arm64-v8a/libbash.so',
+                    'lib/arm64-v8a/libbusybox.so',
+                    'lib/arm64-v8a/libpython3.14.so',
+                    'lib/arm64-v8a/libgit.so',
+            ]
         }
     }
 
@@ -270,6 +286,31 @@ tasks.register('fetchNpmTarball') {
     }
 }
 
+tasks.register('prepareExpressFixture') {
+    dependsOn('fetchNpmTarball')
+    inputs.property('expressVersion', coryExpressVersion)
+    outputs.dir(coryExpressFixtureNodeModulesDir)
+    doLast {
+        delete(coryExpressFixtureDir)
+        coryExpressFixtureDir.mkdirs()
+        file("$coryExpressFixtureDir/package.json").text = '{"name":"cory-express-fixture","private":true}'
+        exec {
+            workingDir(coryExpressFixtureDir)
+            commandLine(
+                    'npm',
+                    'install',
+                    "express@${coryExpressVersion}",
+                    '--no-audit',
+                    '--no-fund',
+                    '--ignore-scripts'
+            )
+        }
+        if (!file("$coryExpressFixtureNodeModulesDir/express/package.json").exists()) {
+            throw new GradleException("express fixture missing after npm install in ${coryExpressFixtureDir}")
+        }
+    }
+}
+
 tasks.register('preparePythonAssets', Copy) {
     into(coryGeneratedPythonAssetsDir)
 
@@ -279,24 +320,20 @@ tasks.register('preparePythonAssets', Copy) {
         into('site-packages') {
             from('src/main/python')
         }
-        rename(/.*(\.gz|-)/, '$0-')
+        // Only escape trailing ".gz" (or already-trailing "-") for assets packaging.
+        // Matching any "-" in the filename corrupts python extension module names
+        // (e.g. linux-android -> linux--android), which breaks imports like _sqlite3.
+        rename(/.*(\.gz|-)$/, '$0-')
     }
 
-    into("python/lib/node_modules/npm") {
-        from(tarTree(resources.gzip(coryNpmTarball))) {
-            eachFile { details ->
-                def segments = details.relativePath.segments
-                if (segments.length < 2 || segments[0] != 'package') {
-                    details.exclude()
-                    return
-                }
-                details.relativePath = new org.gradle.api.file.RelativePath(
-                        details.isDirectory(),
-                        (String[]) segments[1..-1]
-                )
-            }
-            includeEmptyDirs = false
-        }
+    // Ship npm as a tarball and expand in doLast to keep path handling deterministic
+    // across Gradle/host environments.
+    into("python/lib/node_modules") {
+        from(coryNpmTarball)
+        rename { 'npm.tgz' }
+    }
+    into("python/lib/express-fixture/node_modules") {
+        from(coryExpressFixtureNodeModulesDir)
     }
 
     if (coryRipgrepBinary.exists()) {
@@ -336,6 +373,33 @@ tasks.register('preparePythonAssets', Copy) {
 
     doLast {
         mkdir("${coryGeneratedPythonAssetsDir}/python/cwd")
+
+        // Expand npm package payload from npm.tgz into node_modules/npm so
+        // runtime wrappers can execute npm-cli.js directly without on-device
+        // extraction logic.
+        def npmNodeModulesDir = file("${coryGeneratedPythonAssetsDir}/python/lib/node_modules")
+        def npmTarInAssets = file("${npmNodeModulesDir}/npm.tgz")
+        if (npmTarInAssets.exists()) {
+            npmNodeModulesDir.mkdirs()
+            exec {
+                commandLine 'tar', '-xzf', npmTarInAssets.absolutePath, '-C', npmNodeModulesDir.absolutePath
+            }
+            def extractedPackageDir = file("${npmNodeModulesDir}/package")
+            def finalNpmDir = file("${npmNodeModulesDir}/npm")
+            if (extractedPackageDir.exists()) {
+                if (finalNpmDir.exists()) {
+                    finalNpmDir.deleteDir()
+                }
+                if (!extractedPackageDir.renameTo(finalNpmDir)) {
+                    throw new GradleException("Failed to move npm package dir to ${finalNpmDir}")
+                }
+            }
+            if (!file("${finalNpmDir}/bin/npm-cli.js").exists()) {
+                throw new GradleException("npm-cli.js missing after npm extraction at ${finalNpmDir}")
+            }
+        } else {
+            logger.warn("npm tarball not found in assets staging: ${npmTarInAssets}")
+        }
 
         // Strip debug symbols from the bundled node binary. Upstream
         // node24-android.tgz in S3 ships ~913 MB unstripped (V8 + Node
@@ -404,7 +468,7 @@ tasks.register('buildRustArm64', Exec) {
 }
 
 tasks.named('preparePythonAssets').configure {
-    dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'fetchNpmTarball')
+    dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'fetchNpmTarball', 'prepareExpressFixture')
 }
 
 // Unified jniLibs task: collects ALL native deps into the generated jniLibs dir.
@@ -426,6 +490,20 @@ tasks.register('prepareNativeLibs', Copy) {
         include('*.so')
     }
 
+    // Package executable toolchain binaries as lib*.so so Android extracts
+    // them into nativeLibraryDir where SELinux allows execution.
+    into("${coryPythonAbi}") {
+        from(coryNodeBinary) {
+            rename { 'libnode.so' }
+        }
+        from(coryPythonVersionedBinary) {
+            rename { 'libpython3.so' }
+        }
+        from(coryRipgrepBinary) {
+            rename { 'librg.so' }
+        }
+    }
+
     doLast {
         def hostDir =
                 org.gradle.internal.os.OperatingSystem.current().isWindows() ? 'windows-x86_64' :
@@ -437,6 +515,12 @@ tasks.register('prepareNativeLibs', Copy) {
             return
         }
         fileTree(coryGeneratedPythonJniLibsDir).matching { include '**/*.so' }.each { f ->
+            if (f.name == 'libnode.so') {
+                // Do not strip the Node executable copy used via nativeLibraryDir.
+                // We observed Device Farm crashes (exit 139) under npm workloads when
+                // this binary was stripped; keep it intact for runtime stability.
+                return
+            }
             exec {
                 commandLine strip.absolutePath, '--strip-debug', f.absolutePath
             }
@@ -448,24 +532,30 @@ tasks.named('preBuild').configure {
     dependsOn('verifyVendoredAssets', 'buildBusyboxArm64', 'buildRustArm64', 'preparePythonAssets', 'prepareNativeLibs')
 }
 
-// CMake writes the `git` binary directly into
-// ${coryGeneratedPythonAssetsDir}/python/bin/git via its RUNTIME_OUTPUT_DIRECTORY
-// + OUTPUT_NAME target properties (see app/src/main/cpp/CMakeLists.txt).
-//
-// That dir is already registered as `sourceSets.main.assets.srcDir`, so
-// mergeAssets would scan it naturally. BUT: AGP does NOT automatically
-// make mergeAssets depend on the native build (assets and native libs
-// are independent in AGP's model), so mergeAssets can race ahead of
-// CMake and package an empty bin/ dir.
-//
-// Fix: make mergeDebugAssets / mergeReleaseAssets depend on the lazy
-// collection of every `buildCMake*` task. `tasks.matching` returns a
-// live `TaskCollection` that Gradle resolves at graph-construction time,
-// by which point AGP has registered its per-ABI CMake tasks
-// (`buildCMakeDebug[arm64-v8a]` etc). `dependsOn(TaskCollection)` is
-// the documented lazy pattern — no nested `configureEach` needed.
-tasks.matching { it.name == 'mergeDebugAssets' || it.name == 'mergeReleaseAssets' }.configureEach {
-    dependsOn(tasks.matching { it.name.startsWith('buildCMake') })
+// CMake writes the `git` executable into generated jniLibs as libgit.so.
+// Keep mergeAssets tied to variant-specific CMake tasks so asset generation
+// and native generation stay in lockstep and never race.
+tasks.matching { it.name == 'mergeDebugAssets' }.configureEach {
+    dependsOn(tasks.matching { it.name.startsWith('buildCMakeDebug') })
+}
+tasks.matching { it.name == 'mergeReleaseAssets' }.configureEach {
+    dependsOn(tasks.matching { it.name.startsWith('buildCMakeRelWithDebInfo') })
+}
+
+// AGP strips release JNI libs in stripReleaseDebugSymbols. Preserve libnode.so
+// by restoring the merged (unstripped) binary right after strip runs.
+tasks.matching { it.name == 'stripReleaseDebugSymbols' }.configureEach {
+    doLast {
+        def mergedLibnode = file("$buildDir/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out/lib/${coryPythonAbi}/libnode.so")
+        def strippedLibnode = file("$buildDir/intermediates/stripped_native_libs/release/stripReleaseDebugSymbols/out/lib/${coryPythonAbi}/libnode.so")
+        if (mergedLibnode.exists() && strippedLibnode.parentFile.exists()) {
+            copy {
+                from(mergedLibnode)
+                into(strippedLibnode.parentFile)
+                rename { 'libnode.so' }
+            }
+        }
+    }
 }
 
 // USB "connected" instrumentation is not part of the supported local workflow; release smoke runs on

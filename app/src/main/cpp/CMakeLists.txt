@@ -259,10 +259,20 @@ target_link_libraries(git_cli PRIVATE cory_libgit2)
 if(NOT DEFINED CORY_ASSETS_DIR)
     set(CORY_ASSETS_DIR "${cory_root}/app/build/generated/cory/python-assets")
 endif()
+if(NOT DEFINED CORY_NATIVE_BIN_DIR)
+    set(CORY_NATIVE_BIN_DIR "${cory_root}/app/build/generated/cory/python-jniLibs")
+endif()
 set(cory_git_assets_bin_dir "${CORY_ASSETS_DIR}/python/bin")
 set_target_properties(git_cli PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     LINK_FLAGS "-pie"
     RUNTIME_OUTPUT_DIRECTORY "${cory_git_assets_bin_dir}"
     OUTPUT_NAME "git"
+)
+# Also publish as libgit.so in generated jniLibs so Android extracts it into
+# nativeLibraryDir, where SELinux allows execution on Device Farm.
+set_target_properties(git_cli PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CORY_NATIVE_BIN_DIR}/${ANDROID_ABI}"
+    OUTPUT_NAME "libgit"
+    SUFFIX ".so"
 )
