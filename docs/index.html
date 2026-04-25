@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cory — Android Terminal Sandbox</title>
+  <meta name="description" content="Cory is a full Linux terminal on Android with bundled Python, Node.js, Rust, Git, and ripgrep.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><rect width='40' height='40' rx='6' fill='%231a1a2e'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' fill='%239bff00' font-family='monospace' font-size='22' font-weight='bold'>&gt;_</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ── Retroma-inspired palette ──
+       Adapted from maceip/Retroma Obsidian theme:
+       dark retro base with vivid accent hues. */
+    :root {
+      --bg-primary: #1a1a2e;
+      --bg-secondary: #16213e;
+      --bg-tertiary: #0f3460;
+      --bg-card: #1e2746;
+      --text-primary: #e8e4de;
+      --text-secondary: #a0a4b8;
+      --text-muted: #6b7094;
+      --accent: #9bff00;
+      --accent-dim: rgba(155, 255, 0, 0.15);
+      --hue-red: #d32f2f;
+      --hue-orange: #ff9800;
+      --hue-yellow: #ffeb3b;
+      --hue-green: #4caf50;
+      --hue-blue: #2196f3;
+      --hue-indigo: #3f51b5;
+      --hue-teal: #009688;
+      --hue-cyan: #00bcd4;
+      --border-groove: 3px groove #2a2a4a;
+      --border-ridge: 3px ridge #1a1a2e;
+      --radius: 8px;
+      --radius-lg: 14px;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: 'Inter', -apple-system, sans-serif;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Header ── */
+    header {
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 60%),
+        var(--bg-secondary);
+      border-bottom: var(--border-groove);
+      padding: 0 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+
+    .header-inner {
+      max-width: 960px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+
+    .logo {
+      font-family: 'IBM Plex Mono', monospace;
+      font-weight: 700;
+      font-size: 22px;
+      color: var(--accent);
+      letter-spacing: 2px;
+      text-decoration: none;
+    }
+
+    .logo span {
+      color: var(--text-muted);
+      font-weight: 400;
+      font-size: 13px;
+      letter-spacing: 0;
+      margin-left: 8px;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 20px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--accent); }
+
+    /* ── Hero ── */
+    .hero {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 80px 24px 60px;
+      text-align: center;
+    }
+
+    .hero h1 {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: clamp(32px, 5vw, 52px);
+      font-weight: 700;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--hue-cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: 18px;
+      color: var(--text-secondary);
+      max-width: 640px;
+      margin: 0 auto 32px;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: var(--radius);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: transform 0.1s, box-shadow 0.2s;
+      border: var(--border-ridge);
+    }
+    .btn:active { transform: scale(0.97); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #0a0a0f;
+      box-shadow: 0 2px 8px rgba(155,255,0,0.2);
+    }
+    .btn-primary:hover { box-shadow: 0 4px 16px rgba(155,255,0,0.3); }
+
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text-primary);
+    }
+    .btn-secondary:hover { background: var(--bg-tertiary); }
+
+    /* ── Feature grid ── */
+    .features {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    .features h2 {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 40px;
+      text-align: center;
+      color: var(--hue-orange);
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .feature-card {
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.03) 0%, transparent 50%),
+        var(--bg-card);
+      border: var(--border-groove);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .feature-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+
+    .feature-icon {
+      font-size: 28px;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .feature-card h3 {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .feature-card p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* Heading colors from Retroma */
+    .h-red { color: var(--hue-red); }
+    .h-orange { color: var(--hue-orange); }
+    .h-yellow { color: var(--hue-yellow); }
+    .h-green { color: var(--hue-green); }
+    .h-blue { color: var(--hue-blue); }
+    .h-teal { color: var(--hue-teal); }
+    .h-cyan { color: var(--hue-cyan); }
+    .h-indigo { color: var(--hue-indigo); }
+
+    /* ── Tool status table ── */
+    .tools {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    .tools h2 {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 40px;
+      text-align: center;
+      color: var(--hue-green);
+    }
+
+    .tool-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      border: var(--border-groove);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      font-size: 14px;
+    }
+
+    .tool-table th {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      font-family: 'IBM Plex Mono', monospace;
+      font-weight: 600;
+      padding: 14px 20px;
+      text-align: left;
+      border-bottom: 2px solid var(--bg-primary);
+    }
+
+    .tool-table td {
+      background: var(--bg-card);
+      padding: 12px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      color: var(--text-secondary);
+    }
+
+    .tool-table tr:last-child td { border-bottom: none; }
+
+    .tool-table code {
+      font-family: 'IBM Plex Mono', monospace;
+      background: rgba(155,255,0,0.08);
+      color: var(--accent);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .badge-shipped { background: rgba(76,175,80,0.2); color: var(--hue-green); }
+    .badge-shim { background: rgba(255,152,0,0.2); color: var(--hue-orange); }
+
+    /* ── Architecture ── */
+    .arch {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    .arch h2 {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      text-align: center;
+      color: var(--hue-blue);
+    }
+
+    .arch-diagram {
+      background: var(--bg-card);
+      border: var(--border-groove);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--text-secondary);
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: var(--border-groove);
+      background: var(--bg-secondary);
+      padding: 32px 24px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-muted);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      .header-inner { height: 48px; }
+      .logo { font-size: 18px; }
+      .logo span { display: none; }
+      .nav-links { gap: 12px; }
+      .nav-links a { font-size: 12px; }
+      .hero { padding: 48px 16px 40px; }
+      .hero p { font-size: 15px; }
+      .features, .tools, .arch { padding-left: 16px; padding-right: 16px; }
+      .tool-table { font-size: 12px; }
+      .tool-table th, .tool-table td { padding: 10px 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <a class="logo" href="#">CORY <span>android terminal</span></a>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#tools">Tools</a></li>
+        <li><a href="#arch">Architecture</a></li>
+        <li><a href="https://github.com/maceip/mobile-sandbox">GitHub</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h1>&gt;_ Full Linux Terminal on Android</h1>
+    <p>
+      Cory ships a real PTY shell with Python, Node.js, Git, ripgrep, and 60+
+      Unix tools — bundled into a single APK. No root required.
+    </p>
+    <div class="hero-buttons">
+      <a class="btn btn-primary" href="https://github.com/maceip/mobile-sandbox/releases/latest">
+        Download APK
+      </a>
+      <a class="btn btn-secondary" href="https://github.com/maceip/mobile-sandbox">
+        View Source
+      </a>
+    </div>
+  </section>
+
+  <section class="features" id="features">
+    <h2>What It Does</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <span class="feature-icon">🐍</span>
+        <h3 class="h-green">Python 3.14</h3>
+        <p>Full CPython with stdlib, pip, and ensurepip. Run scripts, install packages, build projects.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">⬢</span>
+        <h3 class="h-yellow">Node.js 24</h3>
+        <p>V8-powered JavaScript runtime with npm and npx. Install packages from the registry and run servers.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🦀</span>
+        <h3 class="h-orange">Rust FFI</h3>
+        <p>Native Rust staticlib linked via JNI. Extend the runtime with safe, fast native code.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">📦</span>
+        <h3 class="h-blue">Git</h3>
+        <p>Built from libgit2 with worktree support. Clone, commit, branch, and push from your phone.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🔍</span>
+        <h3 class="h-red">ripgrep</h3>
+        <p>Blazing-fast recursive search. Grep through codebases at native speed on ARM64.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">📝</span>
+        <h3 class="h-teal">vi / nano</h3>
+        <p>BusyBox vi plus a nano shim. Edit files in the terminal with the extra-keys bar for ESC, CTRL, TAB, and arrows.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🛠️</span>
+        <h3 class="h-cyan">60+ Unix Tools</h3>
+        <p>BusyBox applets: ls, cat, grep, find, awk, sed, tar, wget, top, and more — all symlinked at boot.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">⌨️</span>
+        <h3 class="h-indigo">IME Extra Keys</h3>
+        <p>Convenience bar above the soft keyboard with ESC, CTRL, TAB, arrows, and PASTE. Inspired by v9's D-pad.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="tools" id="tools">
+    <h2>Bundled Toolchain</h2>
+    <table class="tool-table">
+      <thead>
+        <tr>
+          <th>Tool</th>
+          <th>Binary</th>
+          <th>Source</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Python</td>
+          <td><code>python3</code></td>
+          <td>CPython 3.14 cross-compiled for aarch64-linux-android</td>
+          <td><span class="badge badge-shipped">shipped</span></td>
+        </tr>
+        <tr>
+          <td>Node.js</td>
+          <td><code>node</code></td>
+          <td>Node 24 prebuilt for ARM64 Android</td>
+          <td><span class="badge badge-shipped">shipped</span></td>
+        </tr>
+        <tr>
+          <td>Git</td>
+          <td><code>git</code></td>
+          <td>libgit2 lg2 + worktree.c via CMake</td>
+          <td><span class="badge badge-shipped">shipped</span></td>
+        </tr>
+        <tr>
+          <td>ripgrep</td>
+          <td><code>rg</code></td>
+          <td>Rust cross-compiled for aarch64-linux-android</td>
+          <td><span class="badge badge-shipped">shipped</span></td>
+        </tr>
+        <tr>
+          <td>BusyBox</td>
+          <td><code>busybox</code></td>
+          <td>NDK-built, provides 60+ applet symlinks</td>
+          <td><span class="badge badge-shipped">shipped</span></td>
+        </tr>
+        <tr>
+          <td>Bash</td>
+          <td><code>bash</code></td>
+          <td>PIE binary from shell-deps S3 bundle</td>
+          <td><span class="badge badge-shipped">shipped</span></td>
+        </tr>
+        <tr>
+          <td>nano</td>
+          <td><code>nano</code></td>
+          <td>Shell shim that delegates to BusyBox vi</td>
+          <td><span class="badge badge-shim">shim</span></td>
+        </tr>
+        <tr>
+          <td>pip</td>
+          <td><code>pip</code></td>
+          <td>Shell wrapper over python3 -m pip</td>
+          <td><span class="badge badge-shim">shim</span></td>
+        </tr>
+        <tr>
+          <td>npm / npx</td>
+          <td><code>npm</code></td>
+          <td>Shell wrapper over node + npm-cli.js</td>
+          <td><span class="badge badge-shim">shim</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="arch" id="arch">
+    <h2>Architecture</h2>
+    <div class="arch-diagram">
+┌─────────────────────────────────────────────────┐
+│              ComposeSandboxActivity              │
+│  setContent { TerminalScreen(env) }              │
+├─────────────────────────────────────────────────┤
+│  TerminalScreen                                  │
+│  ┌─────────────────────────────────────────┐     │
+│  │ CanvasTerminalScreen (SurfaceView)      │     │
+│  │  • Tab bar (top)                        │     │
+│  │  • ANSI terminal renderer               │     │
+│  │  • Selection handles + magnifier        │     │
+│  │  • Pinch-to-zoom                        │     │
+│  └─────────────────────────────────────────┘     │
+│  ┌─────────────────────────────────────────┐     │
+│  │ ExtraKeysBar (Compose)                  │     │
+│  │  ESC │ CTRL │ TAB │ ← ↑ ↓ → │ PASTE    │     │
+│  │  (slides up above soft keyboard)        │     │
+│  └─────────────────────────────────────────┘     │
+├─────────────────────────────────────────────────┤
+│  AnsiTerminalEmulator  →  OutputProcessor        │
+│  TerminalManager  →  SessionManager              │
+│  Pty (JNI forkpty)  →  TerminalService           │
+├─────────────────────────────────────────────────┤
+│  CoryTerminalRuntime                             │
+│  • Copy assets → filesDir/python/                │
+│  • Symlink tools → usr/bin/                      │
+│  • Busybox applets + nano shim                   │
+│  • pip / npm / npx wrappers                      │
+├─────────────────────────────────────────────────┤
+│  Native layer (nativeLibraryDir)                 │
+│  libcory.so  libnode.so  libpython3.so           │
+│  librg.so    libbash.so  libbusybox.so           │
+│  libgit.so   libcory_rust.a                      │
+└─────────────────────────────────────────────────┘</div>
+  </section>
+
+  <footer>
+    <p>
+      Cory &mdash; built by <a href="https://github.com/maceip">maceip</a>
+      &bull; styled with <a href="https://github.com/maceip/Retroma">Retroma</a>
+      &bull; <a href="https://github.com/maceip/mobile-sandbox">source</a>
+    </p>
+  </footer>
+
+</body>
+</html>
